@@ -208,7 +208,7 @@ private:
 
 int main() {
     int frame_width = 640, frame_height = 480;
-    HeadPoseEstimator estimator("scrfd_2.5g_bnkps", frame_width, frame_height);
+    HeadPoseEstimator estimator("scrfd_2.5g_bnkps.onnx", frame_width, frame_height);
 
     cv::VideoCapture cap(0);
     cap.set(cv::CAP_PROP_FRAME_WIDTH, frame_width); 
