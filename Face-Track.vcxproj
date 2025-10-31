@@ -70,6 +70,13 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <PublicIncludeDirectories>$(PublicIncludeDirectories)</PublicIncludeDirectories>
+    <IncludePath>C:\dlib-master;C:\dlib-master\dlib\external;$(IncludePath)</IncludePath>
+  </PropertyGroup>
+  <PropertyGroup Label="Vcpkg">
+    <VcpkgEnableManifest>true</VcpkgEnableManifest>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -102,15 +109,16 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;DLIB_JPEG_SUPPORT;DLIB_PNG_SUPPORT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>C:\opencv\build\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\opencv\build\install\include;C:\Users\bcine\source\repos\Face-Track\vcpkg_installed\x64-windows\include;C:\Users\bcine\source\repos\Face-Track\AdditionalLib\Jpeglib\include</AdditionalIncludeDirectories>
+      <AdditionalOptions>/bigobj  /utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>C:\opencv\build\x64\vc16\lib</AdditionalLibraryDirectories>
-      <AdditionalDependencies>opencv_world4120d.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\opencv\build\install\x64\vc17\lib;C:\Users\bcine\source\repos\Face-Track\vcpkg_installed\x64-windows\lib;C:\Users\bcine\source\repos\Face-Track\AdditionalLib\Jpeglib\lib</AdditionalLibraryDirectories>
+      <AdditionalDependencies>libpng16.lib;zlib.lib;jpeg.lib;opencv_imgproc4130d.lib;opencv_highgui4130d.lib;opencv_core4130d.lib;opencv_calib3d4130d.lib;opencv_dnn4130d.lib;opencv_cudaimgproc4130d.lib;opencv_cudaarithm4130d.lib;opencv_videoio4130d.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -130,9 +138,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\..\..\..\..\dlib-master\dlib\all\source.cpp" />
     <ClCompile Include="Face-Track.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\..\..\Downloads\scrfd_2.5g_bnkps.onnx" />
+    <None Include="packages.config" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <ImportGroup Label="ExtensionTargets">
-  </ImportGroup>
+  <ImportGroup Label="ExtensionTargets" />
 </Project>
