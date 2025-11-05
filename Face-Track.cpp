@@ -11,6 +11,7 @@
 #include <future>
 #include <tuple>
 #include <iostream>
+#include <numeric>
 
 struct FaceData {
     cv::Rect2d bounding_box;
@@ -38,6 +39,26 @@ public:
         dist_coeffs = cv::Mat::zeros(4, 1, CV_64F);
     }
 
+    std::vector<cv::Mat> get_cpu_output_from_gpu(const std::vector<cv::Mat>& gpu_output_blobs) {
+        std::vector<cv::Mat> cpu_output_blobs;
+        for (const cv::Mat& gpu_wrapper : gpu_output_blobs) {
+            
+            // 1. Download data: GPU -> CPU
+            cv::Mat raw_cpu_data;
+            gpu_wrapper.copyTo(raw_cpu_data);
+
+            if (raw_cpu_data.total() > 0) {
+                
+                //Flatten to a single row (1 channel, 1 row) This correctly sets the cv::Mat header required for safe .data pointer access.
+                cv::Mat flat_cpu_blob = raw_cpu_data.reshape(1, 1); 
+                cpu_output_blobs.push_back(flat_cpu_blob);
+            } else {
+                cpu_output_blobs.push_back(cv::Mat());
+            }
+        }
+        return cpu_output_blobs;
+    }
+
     void process_frame(cv::Mat& frame) {
         cv::cuda::GpuMat gpu_frame;
         gpu_frame.upload(frame);
@@ -45,10 +66,12 @@ public:
         cv::dnn::blobFromImage(gpu_frame, blob_gpu, 1.0, cv::Size(640, 480), cv::Scalar(104, 117, 123), false, false);
 
         face_detector.setInput(blob_gpu);
-        std::vector<cv::Mat> output_blobs;
+        std::vector<cv::Mat> output_blobs; // These Mats wrap GPU memory
         face_detector.forward(output_blobs, face_detector.getUnconnectedOutLayersNames());
 
-        std::vector<FaceData> faces = parse_scrfd_output(output_blobs, frame.cols, frame.rows);
+        std::vector<cv::Mat> cpu_output_blobs = get_cpu_output_from_gpu(output_blobs);
+        
+        std::vector<FaceData> faces = parse_scrfd_output(cpu_output_blobs, frame.cols, frame.rows);
 
         if (!faces.empty()) {
             FaceData main_face = find_closest_face(faces);
@@ -57,8 +80,10 @@ public:
             cv::Mat rvec, tvec;
             cv::solvePnP(model_points, image_points, camera_matrix, dist_coeffs, rvec, tvec);
 
-            
             cv::rectangle(frame, main_face.bounding_box, cv::Scalar(0, 255, 0), 2);
+            
+            // Draw the head pose axes
+            draw_pose_axis(frame, rvec, tvec);
         }
     }
 
@@ -86,19 +111,25 @@ public:
     }
 
     std::vector<FaceData> parse_scrfd_output(const std::vector<cv::Mat>& output_blobs, int img_w, int img_h) {
-       
         const float CONFIDENCE_THRESHOLD = 0.5f;
         const float NMS_THRESHOLD = 0.45f;
+        
+        if (output_blobs.size() < 3 || output_blobs[0].empty() || output_blobs[1].empty() || output_blobs[2].empty()) {
+            return {};
+        }
+
         const cv::Mat& boxes_blob = output_blobs[0];
         const cv::Mat& scores_blob = output_blobs[1];
         const cv::Mat& landmarks_blob = output_blobs[2];
         std::vector<cv::Rect> bboxes;
         std::vector<float> confidences;
         std::vector<std::vector<cv::Point2f>> all_landmarks_temp;
-        int num_predictions = scores_blob.size[1];
-        const float* scores_data = (float*)scores_blob.data;
-        const float* boxes_data = (float*)boxes_blob.data;
-        const float* landmarks_data = (float*)landmarks_blob.data;
+        
+        int num_predictions = scores_blob.cols / 2; 
+
+        const float* scores_data = (const float*)scores_blob.data;
+        const float* boxes_data = (const float*)boxes_blob.data;
+        const float* landmarks_data = (const float*)landmarks_blob.data;
 
         for (int i = 0; i < num_predictions; ++i) {
             float face_score = scores_data[i * 2 + 1];
@@ -204,11 +235,30 @@ private:
             std::cout << "Log failed to start: " << ex.what() << std::endl;
         }
     }
+
+    void draw_pose_axis(cv::Mat& frame, const cv::Mat& rvec, const cv::Mat& tvec) {
+        std::vector<cv::Point3d> axis_points = {
+            {0, 0, 0},      // Origin (Nose Tip)
+            {100, 0, 0},    // X-axis (Red - Yaw/Turn Right)
+            {0, 100, 0},    // Y-axis (Green - Pitch/Look Up)
+            {0, 0, 100}     // Z-axis (Blue - Roll/Head Tilt Forward)
+        };
+
+        std::vector<cv::Point2d> image_points;
+        cv::projectPoints(axis_points, rvec, tvec, camera_matrix, dist_coeffs, image_points);
+
+        if (image_points.size() == 4) {
+            cv::Point p0 = image_points[0]; // Origin (Nose Tip)
+            cv::line(frame, p0, image_points[1], cv::Scalar(0, 0, 255), 3); // X-axis (Red)
+            cv::line(frame, p0, image_points[2], cv::Scalar(0, 255, 0), 3); // Y-axis (Green)
+            cv::line(frame, p0, image_points[3], cv::Scalar(255, 0, 0), 3); // Z-axis (Blue)
+        }
+    }
 };
 
 int main() {
     int frame_width = 640, frame_height = 480;
-    HeadPoseEstimator estimator("scrfd_2.5g_bnkps.onnx", frame_width, frame_height);
+    HeadPoseEstimator estimator("scrfd_2.5g_bnkps.onnx", frame_width, frame_height); 
 
     cv::VideoCapture cap(0);
     cap.set(cv::CAP_PROP_FRAME_WIDTH, frame_width); 
@@ -218,6 +268,7 @@ int main() {
         spdlog::error("Cannot open camera.");
         return -1;
     }
+    spdlog::info("Camera opened. Actual frame size: {}x{}", cap.get(cv::CAP_PROP_FRAME_WIDTH), cap.get(cv::CAP_PROP_FRAME_HEIGHT));
 
     while (true) {
         cv::Mat frame;
