@@ -41,20 +41,15 @@ public:
 
     std::vector<cv::Mat> get_cpu_output_from_gpu(const std::vector<cv::Mat>& gpu_output_blobs) {
         std::vector<cv::Mat> cpu_output_blobs;
-        for (const cv::Mat& gpu_wrapper : gpu_output_blobs) {
-            
-            // 1. Download data: GPU -> CPU
-            cv::Mat raw_cpu_data;
-            gpu_wrapper.copyTo(raw_cpu_data);
+        for (const cv::Mat& blob : gpu_output_blobs) {
 
-            if (raw_cpu_data.total() > 0) {
-                
-                //Flatten to a single row (1 channel, 1 row) This correctly sets the cv::Mat header required for safe .data pointer access.
-                cv::Mat flat_cpu_blob = raw_cpu_data.reshape(1, 1); 
-                cpu_output_blobs.push_back(flat_cpu_blob);
-            } else {
+            if (blob.empty()) {
                 cpu_output_blobs.push_back(cv::Mat());
+                continue;
             }
+            cv::Mat flat_cpu = blob.clone().reshape(1, 1);
+
+            cpu_output_blobs.push_back(flat_cpu);
         }
         return cpu_output_blobs;
     }
@@ -79,7 +74,6 @@ public:
 
             cv::Mat rvec, tvec;
             cv::solvePnP(model_points, image_points, camera_matrix, dist_coeffs, rvec, tvec);
-
             cv::rectangle(frame, main_face.bounding_box, cv::Scalar(0, 255, 0), 2);
             
             // Draw the head pose axes
