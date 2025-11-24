@@ -9,6 +9,8 @@
 #include <iostream>
 #include <numeric>
 
+void debug_scrfd_outputs(const std::vector<cv::Mat>& outs);
+
 struct FaceData {
     cv::Rect2d bounding_box;
     std::vector<cv::Point2d> landmarks;
@@ -64,6 +66,7 @@ public:
         std::vector<cv::Mat> raw_outputs;
         try {
             face_detector.forward(raw_outputs, face_detector.getUnconnectedOutLayersNames());
+            debug_scrfd_outputs(raw_outputs);
         }
         catch (const cv::Exception& e) {
             std::cout << "🔥 DNN ERROR: " << e.what() << std::endl;
@@ -292,5 +295,21 @@ int main()
         cv::imshow("HeadPose", frame);
         if (cv::waitKey(1) == 27)
             break;
+    }
+}
+
+void debug_scrfd_outputs(const std::vector<cv::Mat>& outs)
+{
+    std::cout << "scrfd outputs:" << outs.size() << "blobls/n";
+    for(size_t k = 0; k < outs.size(); ++k )
+    {
+        const cv::Mat& m = outs[k];
+        std::cout << "blob" << k << ":dims=" << m.dims << "sizes=[";
+        for (int d = 0; d < m.dims; ++d)
+        {
+            std::cout << m.size[d];
+            if (d + 1 < m.dims) std::cout << ",";
+        }
+        std::cout << "]  type=" << m.type() << "\n";
     }
 }
