@@ -69,7 +69,7 @@ public:
             debug_scrfd_outputs(raw_outputs);
         }
         catch (const cv::Exception& e) {
-            std::cout << "🔥 DNN ERROR: " << e.what() << std::endl;
+            std::cout << " DNN ERROR: " << e.what() << std::endl;
             return;
         }
         auto cpu_outputs = convertOutput(raw_outputs);
@@ -93,89 +93,133 @@ public:
             );
         }
         catch (const cv::Exception& e) {
-            std::cout << "🔥 PNP ERROR: " << e.what() << std::endl;
+            std::cout << " PNP ERROR: " << e.what() << std::endl;
             return;
         }
 
         cv::rectangle(frame, main_face.bounding_box, cv::Scalar(0, 255, 0), 2);
         draw_pose_axis(frame, rvec, tvec);
     }
-    //needs new parse logic incoming too big/not the right size
+
     std::vector<FaceData> parse_scrfd_output(const std::vector<cv::Mat>& output_blobs, int img_w, int img_h)
     {
-        const float CONFIDENCE_THRESHOLD = 0.5f;
-        const float NMS_THRESHOLD = 0.45f;
-
-        if (output_blobs.size() < 3)
-            return {};
-
-        const cv::Mat& boxes_blob = output_blobs[0];
-        const cv::Mat& scores_blob = output_blobs[1];
-        const cv::Mat& landmarks_blob = output_blobs[2];
-
-        if (boxes_blob.empty() || scores_blob.empty() || landmarks_blob.empty())
-            return {};
-
-        std::vector<cv::Rect> bboxes;
-        std::vector<float> confidences;
-        std::vector<std::vector<cv::Point2f>> all_landmarks_temp;
-
-        int num_predictions = scores_blob.cols / 2;
-
-        const float* scores_data = (float*)scores_blob.data;
-        const float* boxes_data = (float*)boxes_blob.data;
-        const float* lm_data = (float*)landmarks_blob.data;
-
-        for (int i = 0; i < num_predictions; i++)
-        {
-            float conf = scores_data[i * 2 + 1];
-            if (conf < CONFIDENCE_THRESHOLD)
-                continue;
-
-            float x1 = boxes_data[i * 4 + 0];
-            float y1 = boxes_data[i * 4 + 1];
-            float x2 = boxes_data[i * 4 + 2];
-            float y2 = boxes_data[i * 4 + 3];
-
-            float sx = img_w / 640.0f;
-            float sy = img_h / 480.0f;
-
-            cv::Rect box(
-                int(x1 * sx),
-                int(y1 * sy),
-                int((x2 - x1) * sx),
-                int((y2 - y1) * sy)
-            );
-
-            box &= cv::Rect(0, 0, img_w, img_h);
-
-            if (box.area() <= 0) continue;
-
-            bboxes.push_back(box);
-            confidences.push_back(conf);
-
-            std::vector<cv::Point2f> lms(5);
-            for (int j = 0; j < 5; j++) {
-                float lx = lm_data[i * 10 + j * 2 + 0];
-                float ly = lm_data[i * 10 + j * 2 + 1];
-                lms[j] = cv::Point2f(lx * sx, ly * sy);
-            }
-            all_landmarks_temp.push_back(lms);
+        const float CONF_THRESH = 0.5f;
+        const float NMS_THRESH = 0.45f;
+        //safety check 9 blobs expected
+        if (output_blobs.size() < 9) {
+            spdlog::error("SCRFD: expected 9 output blobs, got {}", output_blobs.size());
+            return{};
         }
 
-        std::vector<int> idx;
-        cv::dnn::NMSBoxes(bboxes, confidences, CONFIDENCE_THRESHOLD, NMS_THRESHOLD, idx);
+        const int strides[3] = { 8, 16, 32 };
+        std::vector<cv::Rect> all_boxes;
+        std::vector<float> all_scores;
+        std::vector<std::vector<cv::Point2f>> all_landmarks;
+
+
+        for (int level = 0; level < 3; ++level) {
+            int stride = strides[level];
+
+            const cv::Mat& bbox_blob = output_blobs[level * 3 + 0];
+            const cv::Mat& cls_blob = output_blobs[level * 3 + 1];
+            const cv::Mat& kps_blob = output_blobs[level * 3 + 2];
+
+            CV_Assert(bbox_blob.dims == 4 && cls_blob.dims == 4 && kps_blob.dims == 4);
+
+            int H = cls_blob.size[2];
+            int W = cls_blob.size[3];
+
+            //channels
+            int C_cls = cls_blob.size[1];
+            int C_bbox = bbox_blob.size[1];
+            int C_kps = kps_blob.size[1];
+
+            //anchors per cell (A)
+            int A = C_cls / 2;
+
+            CV_Assert(C_bbox == A * 4);
+            CV_Assert(C_kps == A * 10);
+
+            //raw data pointers
+            const float* cls_data = (const float*)cls_blob.data;
+            const float* bbox_data = (const float*)bbox_blob.data;
+            const float* kps_data = (const float*)kps_blob.data;
+
+            for (int h = 0; h < H; ++h) {
+                for (int w = 0; w < W; ++w) {
+                    for (int a = 0; a < A; ++a) {
+
+                        //class index for "face"
+                        int c_face = a * 2 + 1;
+
+                        //memory index helper for NCHW layout
+                        int cls_offset = ((c_face * H) + h) * W + w;
+                        float score = cls_data[cls_offset];
+
+                        if (score < CONF_THRESH)
+                            continue;
+
+                        float cx = (w + 0.5f) * stride;
+                        float cy = (h + 0.5f) * stride;
+
+                        // 4 bbox channels for this anchor
+                        float dx = bbox_data[((a * 4 + 0) * H + h) * W + w] * stride;
+                        float dy = bbox_data[((a * 4 + 1) * H + h) * W + w] * stride;
+                        float dw = bbox_data[((a * 4 + 2) * H + h) * W + w] * stride;
+                        float dh = bbox_data[((a * 4 + 3) * H + h) * W + w] * stride;
+
+                        float x1 = cx - dx;
+                        float y1 = cy - dy;
+                        float x2 = cx + dw;
+                        float y2 = cy + dh;
+
+                        x1 = std::max(0.0f, std::min(x1, (float)img_w - 1));
+                        y1 = std::max(0.0f, std::min(y1, (float)img_h - 1));
+                        x2 = std::max(0.0f, std::min(x2, (float)img_w - 1));
+                        y2 = std::max(0.0f, std::min(y2, (float)img_h - 1));
+
+                        int box_w = int(x2 - x1 + 0.5f);
+                        int box_h = int(y2 - y1 + 0.5f);
+                        if (box_w <= 0 || box_h <= 0)
+                            continue;
+
+                        cv::Rect box((int)x1, (int)y1, box_w, box_h);
+
+                        std::vector<cv::Point2f> landmarks;
+                        landmarks.reserve(5);
+                        for (int j = 0; j < 5; ++j) {
+                            int base = a * 10 + j * 2;
+                            float lx = kps_data[((base + 0) * H + h) * W + w] * stride + cx;
+                            float ly = kps_data[((base + 1) * H + h) * W + w] * stride + cy;
+                            landmarks.emplace_back(lx, ly);
+                        }
+
+                        all_boxes.push_back(box);
+                        all_scores.push_back(score);
+                        all_landmarks.push_back(std::move(landmarks));
+                    }
+                }
+            }
+        }
+
+        //finally, run NMS on all
+        std::vector<int> keep;
+        cv::dnn::NMSBoxes(all_boxes, all_scores, CONF_THRESH, NMS_THRESH, keep);
 
         std::vector<FaceData> faces;
-        for (int i : idx) {
+        faces.reserve(keep.size());
+        for (int idx : keep) {
             FaceData f;
-            f.bounding_box = bboxes[i];
-            f.confidence = confidences[i];
-            for (auto& p : all_landmarks_temp[i])
-                f.landmarks.push_back(cv::Point2d(p));
-            faces.push_back(f);
+            f.bounding_box = all_boxes[idx];
+            f.confidence = all_scores[idx];
+            for (auto& p : all_landmarks[idx]) {
+                f.landmarks.emplace_back(p.x, p.y);
+            }
+            faces.push_back(std::move(f));
         }
+
         return faces;
+
     }
 
     FaceData find_closest_face(const std::vector<FaceData>& faces)
@@ -272,7 +316,7 @@ int main()
 {
     int W = 640, H = 480;
 
-    HeadPoseEstimator estimator("scrfd_2.5g_bnkps.onnx", W, H);
+    HeadPoseEstimator estimator("scrfd_model.onnx", W, H);
 
     cv::VideoCapture cap(0);
     cap.set(cv::CAP_PROP_FRAME_WIDTH, W);
