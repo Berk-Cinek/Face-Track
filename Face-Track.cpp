@@ -7,6 +7,7 @@
 #include <spdlog/sinks/basic_file_sink.h>
 #include <vector>
 #include <iostream>
+#include <filesystem>
 #include <numeric>
 
 void debug_scrfd_outputs(const std::vector<cv::Mat>& outs);
@@ -24,9 +25,12 @@ public:
     {
         face_detector = cv::dnn::readNetFromONNX(scrfd_model_path);
 
-        // CUDA stays enabled!
-        face_detector.setPreferableBackend(cv::dnn::DNN_BACKEND_CUDA);
-        face_detector.setPreferableTarget(cv::dnn::DNN_TARGET_CUDA);
+        face_detector.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
+        face_detector.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
+
+        // CUDA is gonna disabled for now come back to this later as getting errors that cuda is not enabled fully or something
+        //face_detector.setPreferableBackend(cv::dnn::DNN_BACKEND_CUDA);
+        //face_detector.setPreferableTarget(cv::dnn::DNN_TARGET_CUDA);
 
         initLogger();
         initCameraMatrix();
@@ -314,6 +318,10 @@ private:
 
 int main()
 {
+    std::cout << "Current working directory: "<< std::filesystem::current_path() << std::endl;
+
+    std::cout << "ONNX exists? "<< std::filesystem::exists("scrfd_model.onnx") << std::endl;
+
     int W = 640, H = 480;
 
     HeadPoseEstimator estimator("scrfd_model.onnx", W, H);
