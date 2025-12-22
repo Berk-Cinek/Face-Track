@@ -18,10 +18,13 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Face-Track.cpp">
+    <ClCompile Include="..\..\..\..\..\..\dlib-master\dlib\all\source.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\..\..\..\dlib-master\dlib\all\source.cpp">
+    <ClCompile Include="FileName.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Face-Track.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

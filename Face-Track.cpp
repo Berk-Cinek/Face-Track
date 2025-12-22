@@ -5,6 +5,7 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
+#include <onnxruntime_cxx_api.h>
 #include <vector>
 #include <iostream>
 #include <filesystem>
@@ -318,9 +319,17 @@ private:
 
 int main()
 {
-    std::cout << "Current working directory: "<< std::filesystem::current_path() << std::endl;
 
-    std::cout << "ONNX exists? "<< std::filesystem::exists("scrfd_model.onnx") << std::endl;
+    Ort::Env env;
+    Ort::RunOptions runOptions;
+    Ort::Session session(nullptr);
+
+    std::int64_t numchannels = 3;
+    std::int64_t width = 640;
+    std::int64_t height = 480;
+    std::int64_t numClasses = 10000;
+    std::int64_t numInputElements = numchannels * height * width;
+
 
     int W = 640, H = 480;
 
