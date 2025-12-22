@@ -316,6 +316,27 @@ private:
     }
 };
 
+void opencvConverstion(cv::Mat& frame, int64_t height, int64_t width, float* input_buffer) {
+
+    cv::Mat resized;
+    cv::resize(frame, resized, cv::Size(640, 640));
+    int64_t heightWidth = height * width;
+
+    for (int64_t y = 0; y < height; ++y) {
+        for (int64_t x = 0; x < width; ++x) {
+
+            cv::Vec3b pix = resized.at<cv::Vec3b>(y, x);
+
+            float blue = pix[0] / 255.0f;
+            float green = pix[1] / 255.0f;
+            float red = pix[2] / 255.0f;
+
+            input_buffer[0 * heightWidth + y * width + x] = red;
+            input_buffer[1 * heightWidth + y * width + x] = green;
+            input_buffer[2 * heightWidth + y * width + x] = blue;
+        };
+    };
+};
 
 int main()
 {
@@ -338,6 +359,8 @@ int main()
         height,
         width
     };
+
+    std::vector <float> input_buffer (numchannels * height * width);
 
     std::int64_t numInputElements = batch * numchannels * height * width;
 
