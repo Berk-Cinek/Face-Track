@@ -106,7 +106,7 @@ public:
         draw_pose_axis(frame, rvec, tvec);
     }
 
-    std::vector<FaceData> parse_scrfd_output(const std::vector<cv::Mat>& output_blobs, int img_w, int img_h)
+    std::vector<FaceData> parse_scrfd_output(const std::vector<cv::Mat>& output_blobs, int64_t img_w, int64_t img_h)
     {
         const float CONF_THRESH = 0.5f;
         const float NMS_THRESH = 0.45f;
@@ -321,16 +321,28 @@ int main()
 {
 
     Ort::Env env;
-    Ort::RunOptions runOptions;
-    Ort::Session session(nullptr);
 
+    Ort::RunOptions runOptions;Ort::SessionOptions session_options;
+    session_options.SetIntraOpNumThreads(1);
+    session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+
+    Ort::Session session(env, L"scrfd_model.onnx", session_options);
+    
+    std::int64_t batch = 1;
     std::int64_t numchannels = 3;
     std::int64_t width = 640;
-    std::int64_t height = 480;
-    std::int64_t numClasses = 10000;
-    std::int64_t numInputElements = numchannels * height * width;
+    std::int64_t height = 640;
+    std::vector <int64_t> input_shape = {
+        batch,
+        numchannels,
+        height,
+        width
+    };
+
+    std::int64_t numInputElements = batch * numchannels * height * width;
 
 
+    //need to change this probably gonna be changed once onnx is fully implemented
     int W = 640, H = 480;
 
     HeadPoseEstimator estimator("scrfd_model.onnx", W, H);
