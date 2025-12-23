@@ -17,20 +17,43 @@ struct FaceData {
     float confidence = 0.0f;
 };
 
+struct letterBoxInfo {
+    float scale;
+    int pad_x;
+    int pad_y;
+};
+
+letterBoxInfo letterbox(const cv::Mat& src, cv::Mat& dst, int net_w, int net_h)
+{
+    float scale = std::min(net_w / (float)src.cols, net_h/(float)src.rows);
+
+    int new_h = int(src.cols * scale);
+    int new_w = int(src.rows * scale);
+
+    cv::Mat resized;
+    cv::resize(src, resized, cv::Size(new_w, new_h));
+
+    dst = cv::Mat::zeros(net_h, net_w, src.type());
+
+    int pad_x = (net_w - new_w) / 2;
+    int pad_y = (net_h - new_h) / 2;
+
+    resized.copyTo(dst(cv::Rect(pad_x, pad_y, new_w, new_h)));
+
+    return { scale , pad_x, pad_y };
+}
+
 class HeadPoseSolver {
 public:
     HeadPoseSolver(int width, int height): frame_width(width), frame_height(height)
     {
-
-        // CUDA is gonna disabled for now come back to this later as getting errors that cuda is not enabled fully or something
-        //face_detector.setPreferableBackend(cv::dnn::DNN_BACKEND_CUDA);
-        //face_detector.setPreferableTarget(cv::dnn::DNN_TARGET_CUDA);
-
+        // once it is wokring on cpu maybe look at getting it running with cuda aswell but it needs testing to get to that point just keep it in mind
         initLogger();
         initCameraMatrix();
         dist_coeffs = cv::Mat::zeros(4, 1, CV_64F);
     }
 
+    //solvePNP function
     void solveAndDraw(cv::Mat& frame, const FaceData& face) {
         if (face.landmarks.size() != model_points.size())
             return;
@@ -56,11 +79,7 @@ public:
     {
         const float CONF_THRESH = 0.5f;
         const float NMS_THRESH = 0.45f;
-        //safety check 9 blobs expected
-        if (output_blobs.size() < 9) {
-            spdlog::error("SCRFD: expected 9 output blobs, got {}", output_blobs.size());
-            return{};
-        }
+
 
         const int strides[3] = { 8, 16, 32 };
         std::vector<cv::Rect> all_boxes;
