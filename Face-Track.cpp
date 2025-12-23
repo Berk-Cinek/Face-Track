@@ -11,23 +11,16 @@
 #include <filesystem>
 #include <numeric>
 
-void debug_scrfd_outputs(const std::vector<cv::Mat>& outs);
-
 struct FaceData {
     cv::Rect2d bounding_box;
     std::vector<cv::Point2d> landmarks;
-    float confidence;
+    float confidence = 0.0f;
 };
 
-class HeadPoseEstimator {
+class HeadPoseSolver {
 public:
-    HeadPoseEstimator(const std::string& scrfd_model_path, int width, int height)
-        : frame_width(width), frame_height(height)
+    HeadPoseSolver(int width, int height): frame_width(width), frame_height(height)
     {
-        face_detector = cv::dnn::readNetFromONNX(scrfd_model_path);
-
-        face_detector.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
-        face_detector.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
 
         // CUDA is gonna disabled for now come back to this later as getting errors that cuda is not enabled fully or something
         //face_detector.setPreferableBackend(cv::dnn::DNN_BACKEND_CUDA);
@@ -38,73 +31,26 @@ public:
         dist_coeffs = cv::Mat::zeros(4, 1, CV_64F);
     }
 
-    std::vector<cv::Mat> convertOutput(const std::vector<cv::Mat>& output_blobs)
-    {
-        std::vector<cv::Mat> result;
-        result.reserve(output_blobs.size());
-
-        for (const cv::Mat& blob : output_blobs)
-        {
-            if (blob.empty()) {
-                result.push_back(cv::Mat());
-                continue;
-            }
-
-            cv::Mat flat = blob.clone();
-            flat = flat.reshape(1, 1);  // flatten to 1 row
-            result.push_back(flat);
-        }
-        return result;
-    }
-    void process_frame(cv::Mat& frame)
-    {
-        cv::Mat blob_cpu;
-        cv::dnn::blobFromImage(
-            frame, blob_cpu,
-            1.0,
-            cv::Size(640, 480),
-            cv::Scalar(104, 117, 123),
-            false, false
-        );
-        face_detector.setInput(blob_cpu);
-
-        std::vector<cv::Mat> raw_outputs;
-        try {
-            face_detector.forward(raw_outputs, face_detector.getUnconnectedOutLayersNames());
-            debug_scrfd_outputs(raw_outputs);
-        }
-        catch (const cv::Exception& e) {
-            std::cout << " DNN ERROR: " << e.what() << std::endl;
-            return;
-        }
-        auto cpu_outputs = convertOutput(raw_outputs);
-        auto faces = parse_scrfd_output(cpu_outputs, frame.cols, frame.rows);
-        if (faces.empty())
-            return;
-
-        FaceData main_face = find_closest_face(faces);
-
-        if (main_face.landmarks.size() != model_points.size())
+    void solveAndDraw(cv::Mat& frame, const FaceData& face) {
+        if (face.landmarks.size() != model_points.size())
             return;
 
         cv::Mat rvec, tvec;
 
-        try {
-            cv::solvePnP(
-                model_points, main_face.landmarks,
-                camera_matrix, dist_coeffs,
-                rvec, tvec,
-                false, cv::SOLVEPNP_EPNP
-            );
-        }
-        catch (const cv::Exception& e) {
-            std::cout << " PNP ERROR: " << e.what() << std::endl;
-            return;
-        }
+        cv::solvePnP(
+            model_points,
+            face.landmarks,
+            camera_matrix,
+            dist_coeffs,
+            rvec,
+            tvec,
+            cv::SOLVEPNP_EPNP
+        );
 
-        cv::rectangle(frame, main_face.bounding_box, cv::Scalar(0, 255, 0), 2);
+        cv::rectangle(frame, face.bounding_box, cv::Scalar(0, 255, 0), 2);
         draw_pose_axis(frame, rvec, tvec);
     }
+
 
     std::vector<FaceData> parse_scrfd_output(const std::vector<cv::Mat>& output_blobs, int64_t img_w, int64_t img_h)
     {
@@ -376,6 +322,8 @@ int main()
         output_names.push_back(session.GetInputNameAllocated(i, allocator).get());
     };
 
+    HeadPoseSolver solver(640, 480);
+
     //openCv camera
     cv::VideoCapture cap(0);
     cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
@@ -416,6 +364,9 @@ int main()
         // --- TODO ---
        // parse_scrfd_output(outputs, frame.cols, frame.rows);
 
+        //pick face + solve pose
+        //if(!face.empthy()) solver.solveAndDraw(frame, faces[0]);
+
         cv::imshow("Camera", frame);
         if (cv::waitKey(1) == 27)
             break;
@@ -424,18 +375,3 @@ int main()
     return 0;
 }
 
-void debug_scrfd_outputs(const std::vector<cv::Mat>& outs)
-{
-    std::cout << "scrfd outputs:" << outs.size() << "blobls/n";
-    for(size_t k = 0; k < outs.size(); ++k )
-    {
-        const cv::Mat& m = outs[k];
-        std::cout << "blob" << k << ":dims=" << m.dims << "sizes=[";
-        for (int d = 0; d < m.dims; ++d)
-        {
-            std::cout << m.size[d];
-            if (d + 1 < m.dims) std::cout << ",";
-        }
-        std::cout << "]  type=" << m.type() << "\n";
-    }
-}
