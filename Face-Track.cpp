@@ -96,8 +96,8 @@ public:
 
             CV_Assert(bbox_blob.dims == 4 && cls_blob.dims == 4 && kps_blob.dims == 4);
 
-            int H = cls_blob.size[2];
-            int W = cls_blob.size[3];
+            int Height = cls_blob.size[2];
+            int Width = cls_blob.size[3];
 
             //channels
             int C_cls = cls_blob.size[1];
@@ -115,15 +115,15 @@ public:
             const float* bbox_data = (const float*)bbox_blob.data;
             const float* kps_data = (const float*)kps_blob.data;
 
-            for (int h = 0; h < H; ++h) {
-                for (int w = 0; w < W; ++w) {
+            for (int h = 0; h < Height; ++h) {
+                for (int w = 0; w < Width; ++w) {
                     for (int a = 0; a < A; ++a) {
 
                         //class index for "face"
                         int c_face = a * 2 + 1;
 
                         //memory index helper for NCHW layout
-                        int cls_offset = ((c_face * H) + h) * W + w;
+                        int cls_offset = ((c_face * Height) + h) * Width + w;
                         float score = cls_data[cls_offset];
 
                         if (score < CONF_THRESH)
@@ -133,10 +133,10 @@ public:
                         float cy = (h + 0.5f) * stride;
 
                         // 4 bbox channels for this anchor
-                        float dx = bbox_data[((a * 4 + 0) * H + h) * W + w] * stride;
-                        float dy = bbox_data[((a * 4 + 1) * H + h) * W + w] * stride;
-                        float dw = bbox_data[((a * 4 + 2) * H + h) * W + w] * stride;
-                        float dh = bbox_data[((a * 4 + 3) * H + h) * W + w] * stride;
+                        float dx = bbox_data[((a * 4 + 0) * Height + h) * Width + w] * stride;
+                        float dy = bbox_data[((a * 4 + 1) * Height + h) * Width + w] * stride;
+                        float dw = bbox_data[((a * 4 + 2) * Height + h) * Width + w] * stride;
+                        float dh = bbox_data[((a * 4 + 3) * Height + h) * Width + w] * stride;
 
                         float x1 = cx - dx;
                         float y1 = cy - dy;
@@ -159,8 +159,8 @@ public:
                         landmarks.reserve(5);
                         for (int j = 0; j < 5; ++j) {
                             int base = a * 10 + j * 2;
-                            float lx = kps_data[((base + 0) * H + h) * W + w] * stride + cx;
-                            float ly = kps_data[((base + 1) * H + h) * W + w] * stride + cy;
+                            float lx = kps_data[((base + 0) * Height + h) * Width + w] * stride + cx;
+                            float ly = kps_data[((base + 1) * Height + h) * Width + w] * stride + cy;
                             landmarks.emplace_back(lx, ly);
                         }
 

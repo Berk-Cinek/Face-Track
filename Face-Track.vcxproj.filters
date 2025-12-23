@@ -21,9 +21,6 @@
     <ClCompile Include="..\..\..\..\..\..\dlib-master\dlib\all\source.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="FileName.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="Face-Track.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
