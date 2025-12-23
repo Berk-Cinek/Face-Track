@@ -340,39 +340,46 @@ void opencvConverstion(cv::Mat& frame, int64_t height, int64_t width, float* inp
 
 int main()
 {
+    // Ort model config
+    std::int64_t batch = 1;
+    std::int64_t numchannels = 3;
+    std::int64_t width = 640;
+    std::int64_t height = 640;
+    std::vector <int64_t> input_shape = { batch, numchannels, height, width };
+    size_t input_tensor_size = numchannels * height * width;
 
-    Ort::Env env;
+    std::vector <float> input_buffer(numchannels * height * width);
 
-    Ort::RunOptions runOptions;Ort::SessionOptions session_options;
+    std::int64_t numInputElements = batch * numchannels * height * width;
+
+    // Ort setup
+    Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "scrfd");
+
+    Ort::SessionOptions session_options;
     session_options.SetIntraOpNumThreads(1);
     session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 
     Ort::Session session(env, L"scrfd_model.onnx", session_options);
     
-    std::int64_t batch = 1;
-    std::int64_t numchannels = 3;
-    std::int64_t width = 640;
-    std::int64_t height = 640;
-    std::vector <int64_t> input_shape = {
-        batch,
-        numchannels,
-        height,
-        width
+    std::vector <float> input_buffer(input_tensor_size); 
+    Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);//check later if OrtMemType... will need to be cuda specific
+
+    // input/output names
+    Ort::AllocatorWithDefaultOptions allocator;
+
+    auto input_name_alloc = session.GetInputNameAllocated(0, allocator);
+    const char* input_name = input_name_alloc.get();
+    std::vector <const char*> input_names{ input_name };
+
+    std::vector <const char*> output_names;
+    for (size_t i = 0; i < session.GetOutputCount(); ++i) {
+        output_names.push_back(session.GetInputNameAllocated(i, allocator).get());
     };
 
-    std::vector <float> input_buffer (numchannels * height * width);
-
-    std::int64_t numInputElements = batch * numchannels * height * width;
-
-
-    //need to change this probably gonna be changed once onnx is fully implemented
-    int W = 640, H = 480;
-
-    HeadPoseEstimator estimator("scrfd_model.onnx", W, H);
-
+    //openCv camera
     cv::VideoCapture cap(0);
-    cap.set(cv::CAP_PROP_FRAME_WIDTH, W);
-    cap.set(cv::CAP_PROP_FRAME_HEIGHT, H);
+    cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
+    cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
 
     if (!cap.isOpened()) {
         spdlog::error("Cannot open camera!");
@@ -385,13 +392,36 @@ int main()
         cap >> frame;
         if (frame.empty())
             break;
+        
+        opencvConverstion(frame, height, width, input_buffer.data());
 
-        estimator.process_frame(frame);
+        Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+            memory_info,
+            input_buffer.data(),
+            input_buffer.size(),
+            input_shape.data(),
+            input_shape.size()
+            );
 
-        cv::imshow("HeadPose", frame);
+        //inference
+        std::vector<Ort::Value> outputs = session.Run(
+            Ort::RunOptions{ nullptr },
+            input_names.data(),
+            &input_tensor,
+            1,
+            output_names.data(),
+            output_names.size()
+        );
+
+        // --- TODO ---
+       // parse_scrfd_output(outputs, frame.cols, frame.rows);
+
+        cv::imshow("Camera", frame);
         if (cv::waitKey(1) == 27)
             break;
     }
+
+    return 0;
 }
 
 void debug_scrfd_outputs(const std::vector<cv::Mat>& outs)
