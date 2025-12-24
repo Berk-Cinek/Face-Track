@@ -21,14 +21,34 @@ struct letterBoxInfo {
     float scale;
     int pad_x;
     int pad_y;
+    int dst_w;
+    int dst_h;
 };
+
+static inline float clampf(float v, float lo, float hi) {
+    return std::max(lo, std::min(v, hi));
+}
+
+static inline cv::Point2d unletter_point(const cv::Point2d& p, const letterBoxInfo& lb) {
+    return cv::Point2d(
+        (p.x - lb.pad_x) / lb.scale,
+        (p.y - lb.pad_y) / lb.scale
+    );
+}
+
+static inline cv::Rect2d unletter_rect(const cv::Rect2d& r, const letterBoxInfo& lb) {
+    cv::Point2d p1 = unletter_point({ r.x, r.y }, lb);
+    cv::Point2d p2 = unletter_point({ r.x + r.width, r.y + r.height }, lb);
+    return cv::Rect2d(p1, p2);
+}
+
 
 letterBoxInfo letterbox(const cv::Mat& src, cv::Mat& dst, int net_w, int net_h)
 {
     float scale = std::min(net_w / (float)src.cols, net_h/(float)src.rows);
 
-    int new_h = int(src.cols * scale);
-    int new_w = int(src.rows * scale);
+    int new_w = int(src.cols * scale);
+    int new_h = int(src.rows * scale);
 
     cv::Mat resized;
     cv::resize(src, resized, cv::Size(new_w, new_h));
@@ -40,7 +60,54 @@ letterBoxInfo letterbox(const cv::Mat& src, cv::Mat& dst, int net_w, int net_h)
 
     resized.copyTo(dst(cv::Rect(pad_x, pad_y, new_w, new_h)));
 
-    return { scale , pad_x, pad_y };
+    return { scale, pad_x, pad_y, net_w, net_h };
+}
+
+void fill_nchw_rgb(const cv::Mat& img, float* input, int H, int W)
+{
+    const int HW = H * W;
+
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
+            cv::Vec3b bgr = img.at<cv::Vec3b>(y, x);
+
+            float r = bgr[2] / 255.0f;
+            float g = bgr[1] / 255.0f;
+            float b = bgr[0] / 255.0f;
+
+            input[0 * HW + y * W + x] = r;
+            input[1 * HW + y * W + x] = g;
+            input[2 * HW + y * W + x] = b;
+        }
+    }
+}
+
+std::vector<FaceData> unletterbox_faces(
+    const std::vector<FaceData>& faces640,
+    const letterBoxInfo& lb,
+    int orig_w, int orig_h
+) {
+    std::vector<FaceData> out;
+    out.reserve(faces640.size());
+
+    for (const auto& f : faces640) {
+        FaceData g = f;
+        g.bounding_box = unletter_rect(f.bounding_box, lb);
+
+        // clamp to original image bounds
+        g.bounding_box.x = clampf((float)g.bounding_box.x, 0.f, (float)orig_w - 1.f);
+        g.bounding_box.y = clampf((float)g.bounding_box.y, 0.f, (float)orig_h - 1.f);
+        g.bounding_box.width = clampf((float)g.bounding_box.width, 0.f, (float)orig_w - g.bounding_box.x);
+        g.bounding_box.height = clampf((float)g.bounding_box.height, 0.f, (float)orig_h - g.bounding_box.y);
+
+        for (auto& lm : g.landmarks) {
+            auto p = unletter_point(lm, lb);
+            lm.x = clampf((float)p.x, 0.f, (float)orig_w - 1.f);
+            lm.y = clampf((float)p.y, 0.f, (float)orig_h - 1.f);
+        }
+        out.push_back(std::move(g));
+    }
+    return out;
 }
 
 class HeadPoseSolver {
@@ -67,6 +134,7 @@ public:
             dist_coeffs,
             rvec,
             tvec,
+            false,
             cv::SOLVEPNP_EPNP
         );
 
@@ -75,121 +143,135 @@ public:
     }
 
 
-    std::vector<FaceData> parse_scrfd_output(const std::vector<cv::Mat>& output_blobs, int64_t img_w, int64_t img_h)
-    {
-        const float CONF_THRESH = 0.5f;
-        const float NMS_THRESH = 0.45f;
+    std::vector<FaceData> parse_scrfd_ort(
+        const std::vector<Ort::Value>& outputs,
+        int img_w, int img_h,
+        float conf_thresh = 0.5f,
+        float nms_thresh = 0.45f
+    ) {
+        std::vector<FaceData> faces;
 
+        if (outputs.size() != 9) {
+            spdlog::error("SCRFD: expected 9 outputs, got {}", outputs.size());
+            return faces;
+        }
 
+        //printed order:
+        // score_8, 16, 32, bbox_8, 16, 32, kps_8, 16, 32
+        // indices are:
+        // scores: 0..2
+        // bbox:   3..5
+        // kps:    6..8
         const int strides[3] = { 8, 16, 32 };
+
         std::vector<cv::Rect> all_boxes;
         std::vector<float> all_scores;
-        std::vector<std::vector<cv::Point2f>> all_landmarks;
-
+        std::vector<std::vector<cv::Point2f>> all_kps;
 
         for (int level = 0; level < 3; ++level) {
-            int stride = strides[level];
+            const int stride = strides[level];
 
-            const cv::Mat& bbox_blob = output_blobs[level * 3 + 0];
-            const cv::Mat& cls_blob = output_blobs[level * 3 + 1];
-            const cv::Mat& kps_blob = output_blobs[level * 3 + 2];
+            const Ort::Value& score_t = outputs[level + 0];
+            const Ort::Value& bbox_t = outputs[level + 3];
+            const Ort::Value& kps_t = outputs[level + 6];
 
-            CV_Assert(bbox_blob.dims == 4 && cls_blob.dims == 4 && kps_blob.dims == 4);
+            // shape checks
+            auto s_shape = score_t.GetTensorTypeAndShapeInfo().GetShape();
+            auto b_shape = bbox_t.GetTensorTypeAndShapeInfo().GetShape();
+            auto k_shape = kps_t.GetTensorTypeAndShapeInfo().GetShape();
 
-            int Height = cls_blob.size[2];
-            int Width = cls_blob.size[3];
+            if (s_shape.size() != 2 || b_shape.size() != 2 || k_shape.size() != 2) {
+                spdlog::error("SCRFD: unexpected tensor rank at level {}", level);
+                continue;
+            }
 
-            //channels
-            int C_cls = cls_blob.size[1];
-            int C_bbox = bbox_blob.size[1];
-            int C_kps = kps_blob.size[1];
+            const int64_t N = s_shape[0];
+            if (s_shape[1] != 1 || b_shape[0] != N || b_shape[1] != 4 || k_shape[0] != N || k_shape[1] != 10) {
+                spdlog::error("SCRFD: unexpected shapes at level {}: score[{},{}], bbox[{},{}], kps[{},{}]",
+                    level,
+                    (long long)s_shape[0], (long long)s_shape[1],
+                    (long long)b_shape[0], (long long)b_shape[1],
+                    (long long)k_shape[0], (long long)k_shape[1]);
+                continue;
+            }
 
-            //anchors per cell (A)
-            int A = C_cls / 2;
+            const float* score = score_t.GetTensorData<float>();
+            const float* bbox = bbox_t.GetTensorData<float>();
+            const float* kps = kps_t.GetTensorData<float>();
 
-            CV_Assert(C_bbox == A * 4);
-            CV_Assert(C_kps == A * 10);
+            const int Wg = img_w / stride;
+            const int Hg = img_h / stride;
 
-            //raw data pointers
-            const float* cls_data = (const float*)cls_blob.data;
-            const float* bbox_data = (const float*)bbox_blob.data;
-            const float* kps_data = (const float*)kps_blob.data;
+            const int cells = Hg * Wg;
+            if (cells <= 0 || (N % cells) != 0) {
+                spdlog::error("SCRFD: cannot infer anchors/cell at stride {} (N={}, cells={})", stride, (long long)N, cells);
+                continue;
+            }
+            const int A = (int)(N / cells);
 
-            for (int h = 0; h < Height; ++h) {
-                for (int w = 0; w < Width; ++w) {
-                    for (int a = 0; a < A; ++a) {
+            for (int i = 0; i < (int)N; ++i) {
+                float sc = score[i];
+                if (sc < conf_thresh) continue;
 
-                        //class index for "face"
-                        int c_face = a * 2 + 1;
+                int cell_index = i / A;  
+                int a = i % A; 
 
-                        //memory index helper for NCHW layout
-                        int cls_offset = ((c_face * Height) + h) * Width + w;
-                        float score = cls_data[cls_offset];
+                int gy = cell_index / Wg;
+                int gx = cell_index % Wg;
 
-                        if (score < CONF_THRESH)
-                            continue;
+                float cx = (gx + 0.5f) * stride;
+                float cy = (gy + 0.5f) * stride;
 
-                        float cx = (w + 0.5f) * stride;
-                        float cy = (h + 0.5f) * stride;
+                float dx = bbox[i * 4 + 0] * stride;
+                float dy = bbox[i * 4 + 1] * stride;
+                float dw = bbox[i * 4 + 2] * stride;
+                float dh = bbox[i * 4 + 3] * stride;
 
-                        // 4 bbox channels for this anchor
-                        float dx = bbox_data[((a * 4 + 0) * Height + h) * Width + w] * stride;
-                        float dy = bbox_data[((a * 4 + 1) * Height + h) * Width + w] * stride;
-                        float dw = bbox_data[((a * 4 + 2) * Height + h) * Width + w] * stride;
-                        float dh = bbox_data[((a * 4 + 3) * Height + h) * Width + w] * stride;
+                float x1 = cx - dx;
+                float y1 = cy - dy;
+                float x2 = cx + dw;
+                float y2 = cy + dh;
 
-                        float x1 = cx - dx;
-                        float y1 = cy - dy;
-                        float x2 = cx + dw;
-                        float y2 = cy + dh;
+                x1 = clampf(x1, 0.f, (float)img_w - 1.f);
+                y1 = clampf(y1, 0.f, (float)img_h - 1.f);
+                x2 = clampf(x2, 0.f, (float)img_w - 1.f);
+                y2 = clampf(y2, 0.f, (float)img_h - 1.f);
 
-                        x1 = std::max(0.0f, std::min(x1, (float)img_w - 1));
-                        y1 = std::max(0.0f, std::min(y1, (float)img_h - 1));
-                        x2 = std::max(0.0f, std::min(x2, (float)img_w - 1));
-                        y2 = std::max(0.0f, std::min(y2, (float)img_h - 1));
+                int bw = (int)(x2 - x1 + 0.5f);
+                int bh = (int)(y2 - y1 + 0.5f);
+                if (bw <= 0 || bh <= 0) continue;
 
-                        int box_w = int(x2 - x1 + 0.5f);
-                        int box_h = int(y2 - y1 + 0.5f);
-                        if (box_w <= 0 || box_h <= 0)
-                            continue;
+                cv::Rect box((int)x1, (int)y1, bw, bh);
 
-                        cv::Rect box((int)x1, (int)y1, box_w, box_h);
-
-                        std::vector<cv::Point2f> landmarks;
-                        landmarks.reserve(5);
-                        for (int j = 0; j < 5; ++j) {
-                            int base = a * 10 + j * 2;
-                            float lx = kps_data[((base + 0) * Height + h) * Width + w] * stride + cx;
-                            float ly = kps_data[((base + 1) * Height + h) * Width + w] * stride + cy;
-                            landmarks.emplace_back(lx, ly);
-                        }
-
-                        all_boxes.push_back(box);
-                        all_scores.push_back(score);
-                        all_landmarks.push_back(std::move(landmarks));
-                    }
+                std::vector<cv::Point2f> lm;
+                lm.reserve(5);
+                for (int j = 0; j < 5; ++j) {
+                    float lx = kps[i * 10 + (j * 2 + 0)] * stride + cx;
+                    float ly = kps[i * 10 + (j * 2 + 1)] * stride + cy;
+                    lm.emplace_back(lx, ly);
                 }
+
+                all_boxes.push_back(box);
+                all_scores.push_back(sc);
+                all_kps.push_back(std::move(lm));
             }
         }
 
-        //finally, run NMS on all
-        std::vector<int> keep;
-        cv::dnn::NMSBoxes(all_boxes, all_scores, CONF_THRESH, NMS_THRESH, keep);
+        if (all_boxes.empty()) return faces;
 
-        std::vector<FaceData> faces;
+        std::vector<int> keep;
+        cv::dnn::NMSBoxes(all_boxes, all_scores, conf_thresh, nms_thresh, keep);
+
         faces.reserve(keep.size());
         for (int idx : keep) {
             FaceData f;
             f.bounding_box = all_boxes[idx];
             f.confidence = all_scores[idx];
-            for (auto& p : all_landmarks[idx]) {
-                f.landmarks.emplace_back(p.x, p.y);
-            }
+            f.landmarks.reserve(5);
+            for (auto& p : all_kps[idx]) f.landmarks.emplace_back(p.x, p.y);
             faces.push_back(std::move(f));
         }
-
         return faces;
-
     }
 
     FaceData find_closest_face(const std::vector<FaceData>& faces)
@@ -313,8 +395,6 @@ int main()
     std::vector <int64_t> input_shape = { batch, numchannels, height, width };
     size_t input_tensor_size = numchannels * height * width;
 
-    std::vector <float> input_buffer(numchannels * height * width);
-
     std::int64_t numInputElements = batch * numchannels * height * width;
 
     // Ort setup
@@ -332,14 +412,17 @@ int main()
     // input/output names
     Ort::AllocatorWithDefaultOptions allocator;
 
-    auto input_name_alloc = session.GetInputNameAllocated(0, allocator);
-    const char* input_name = input_name_alloc.get();
-    std::vector <const char*> input_names{ input_name };
+    auto input_name = session.GetInputNameAllocated(0, allocator);
+    std::vector<const char*> input_names = { input_name.get() };
 
-    std::vector <const char*> output_names;
+    auto input_name_alloc = session.GetInputNameAllocated(0, allocator);
+    std::vector<const char*> output_names;
+    std::vector<Ort::AllocatedStringPtr> output_name_allocs;
+
     for (size_t i = 0; i < session.GetOutputCount(); ++i) {
-        output_names.push_back(session.GetInputNameAllocated(i, allocator).get());
-    };
+        output_name_allocs.push_back(session.GetOutputNameAllocated(i, allocator));
+        output_names.push_back(output_name_allocs.back().get());
+    }
 
     HeadPoseSolver solver(640, 480);
 
@@ -359,8 +442,12 @@ int main()
         cap >> frame;
         if (frame.empty())
             break;
-        
-        opencvConverstion(frame, height, width, input_buffer.data());
+
+
+        cv::Mat img640;
+        letterBoxInfo lb = letterbox(frame, img640, 640, 640);
+
+        fill_nchw_rgb(img640, input_buffer.data(), 640, 640);
 
         Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
             memory_info,
@@ -368,23 +455,29 @@ int main()
             input_buffer.size(),
             input_shape.data(),
             input_shape.size()
-            );
-
-        //inference
-        std::vector<Ort::Value> outputs = session.Run(
-            Ort::RunOptions{ nullptr },
-            input_names.data(),
-            &input_tensor,
-            1,
-            output_names.data(),
-            output_names.size()
         );
 
-        // --- TODO ---
-       // parse_scrfd_output(outputs, frame.cols, frame.rows);
+        try {
+            auto outputs = session.Run(
+                Ort::RunOptions{ nullptr },
+                input_names.data(),
+                &input_tensor,
+                1,
+                output_names.data(),
+                output_names.size()
+            );
 
-        //pick face + solve pose
-        //if(!face.empthy()) solver.solveAndDraw(frame, faces[0]);
+            auto faces640 = solver.parse_scrfd_ort(outputs, 640, 640);
+            auto faces = unletterbox_faces(faces640, lb, frame.cols, frame.rows);
+            if (!faces.empty()) {
+                solver.solveAndDraw(frame, faces[0]);
+            }
+        }
+        catch (const Ort::Exception& e) {
+            std::cerr << "ORT ERROR: " << e.what() << std::endl;
+            return -1;
+        }
+
 
         cv::imshow("Camera", frame);
         if (cv::waitKey(1) == 27)
