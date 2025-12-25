@@ -29,16 +29,16 @@ static inline float clampf(float v, float lo, float hi) {
     return std::max(lo, std::min(v, hi));
 }
 
-static inline cv::Point2d unletter_point(const cv::Point2d& p, const letterBoxInfo& lb) {
+static inline cv::Point2d unletter_point(const cv::Point2d& pad, const letterBoxInfo& letterbox) {
     return cv::Point2d(
-        (p.x - lb.pad_x) / lb.scale,
-        (p.y - lb.pad_y) / lb.scale
+        (pad.x - letterbox.pad_x) / letterbox.scale,
+        (pad.y - letterbox.pad_y) / letterbox.scale
     );
 }
 
-static inline cv::Rect2d unletter_rect(const cv::Rect2d& r, const letterBoxInfo& lb) {
-    cv::Point2d p1 = unletter_point({ r.x, r.y }, lb);
-    cv::Point2d p2 = unletter_point({ r.x + r.width, r.y + r.height }, lb);
+static inline cv::Rect2d unletter_rect(const cv::Rect2d& r, const letterBoxInfo& letterbox) {
+    cv::Point2d p1 = unletter_point({ r.x, r.y }, letterbox);
+    cv::Point2d p2 = unletter_point({ r.x + r.width, r.y + r.height }, letterbox);
     return cv::Rect2d(p1, p2);
 }
 
