@@ -411,6 +411,7 @@ int main()
     session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 
     Ort::Session session(env, L"scrfd_model.onnx", session_options);
+
     
     std::vector <float> input_buffer(input_tensor_size); 
     Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);//check later if OrtMemType... will need to be cuda specific
