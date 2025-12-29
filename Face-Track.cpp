@@ -9,7 +9,16 @@
 #include <vector>
 #include <iostream>
 #include <filesystem>
-#include <numeric>
+#include <numeric> 
+#include <chrono>
+
+#define TICK(name)\
+    auto t_##name = std::chrono::high_resolution_clock::now();
+
+#define TOCK(name) \
+    spdlog::info("{}: {} ms", #name, \
+    std::chrono::duration_cast<std::chrono::milliseconds>( \
+        std::chrono::high_resolution_clock::now() - t_##name).count());
 
 struct FaceData {
     cv::Rect2d bounding_box;
@@ -82,11 +91,7 @@ void fill_nchw_rgb(const cv::Mat& img, float* input, int H, int W)
     }
 }
 
-std::vector<FaceData> unletterbox_faces(
-    const std::vector<FaceData>& faces640,
-    const letterBoxInfo& lb,
-    int orig_w, int orig_h
-) {
+std::vector<FaceData> unletterbox_faces(const std::vector<FaceData>& faces640, const letterBoxInfo& lb, int orig_w, int orig_h) {
     std::vector<FaceData> out;
     out.reserve(faces640.size());
 
@@ -401,7 +406,8 @@ int main()
     Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "scrfd");
 
     Ort::SessionOptions session_options;
-    session_options.SetIntraOpNumThreads(1);
+    //by not setting this option ort autmaticly manages cores and affinitisez them
+    //session_options.SetIntraOpNumThreads(1);
     session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 
     Ort::Session session(env, L"scrfd_model.onnx", session_options);
@@ -438,16 +444,20 @@ int main()
 
     while (true)
     {
+        TICK(capture)
         cv::Mat frame;
         cap >> frame;
+        TOCK(capture)
         if (frame.empty())
             break;
+        TOCK(capture)
 
-
+        TICK(preprocess)
         cv::Mat img640;
         letterBoxInfo lb = letterbox(frame, img640, 640, 640);
 
         fill_nchw_rgb(img640, input_buffer.data(), 640, 640);
+        TOCK(preprocess)
 
         Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
             memory_info,
@@ -458,6 +468,7 @@ int main()
         );
 
         try {
+            TICK(infer)
             auto outputs = session.Run(
                 Ort::RunOptions{ nullptr },
                 input_names.data(),
@@ -466,20 +477,29 @@ int main()
                 output_names.data(),
                 output_names.size()
             );
+            TOCK(infer)
 
+            TICK(post)
             auto faces640 = solver.parse_scrfd_ort(outputs, 640, 640);
             auto faces = unletterbox_faces(faces640, lb, frame.cols, frame.rows);
+            static int frame_id = 0;
+            if (++frame_id % 3 == 0) {
+                solver.solveAndDraw(frame, faces[0]);
+            }
             if (!faces.empty()) {
                 solver.solveAndDraw(frame, faces[0]);
             }
+            TOCK(post)
         }
         catch (const Ort::Exception& e) {
             std::cerr << "ORT ERROR: " << e.what() << std::endl;
             return -1;
         }
 
-
+        TICK(render)
         cv::imshow("Camera", frame);
+        TOCK(render)
+
         if (cv::waitKey(1) == 27)
             break;
     }
