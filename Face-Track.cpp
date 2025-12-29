@@ -91,6 +91,35 @@ void fill_nchw_rgb(const cv::Mat& img, float* input, int H, int W)
     }
 }
 
+static cv::Vec3d rvecToEulerDegrees(const cv::Mat& rvec)
+{
+    cv::Mat R;
+    cv::Rodrigues(rvec, R);
+
+    double sy = std::sqrt(R.at<double>(0, 0) * R.at<double>(0, 0) +
+        R.at<double>(1, 0) * R.at<double>(1, 0));
+
+    bool singular = sy < 1e-6;
+
+    double x, y, z;
+    if (!singular) {
+        x = std::atan2(R.at<double>(2, 1), R.at<double>(2, 2)); // pitch
+        y = std::atan2(-R.at<double>(2, 0), sy);               // yaw
+        z = std::atan2(R.at<double>(1, 0), R.at<double>(0, 0)); // roll
+    }
+    else {
+        x = std::atan2(-R.at<double>(1, 2), R.at<double>(1, 1));
+        y = std::atan2(-R.at<double>(2, 0), sy);
+        z = 0;
+    }
+
+    return {
+        x * 180.0 / CV_PI,
+        y * 180.0 / CV_PI,
+        z * 180.0 / CV_PI
+    };
+}
+
 std::vector<FaceData> unletterbox_faces(const std::vector<FaceData>& faces640, const letterBoxInfo& lb, int orig_w, int orig_h) {
     std::vector<FaceData> out;
     out.reserve(faces640.size());
@@ -145,6 +174,13 @@ public:
 
         cv::rectangle(frame, face.bounding_box, cv::Scalar(0, 255, 0), 2);
         draw_pose_axis(frame, rvec, tvec);
+
+        auto angles = rvecToEulerDegrees(rvec);
+
+        spdlog::info(
+            "Pitch: {:.1f} degrees, Yaw: {:.1f} degrees, Roll: {:.1f} degrees",
+            angles[0], angles[1], angles[2]
+        );
     }
 
 
@@ -445,20 +481,15 @@ int main()
 
     while (true)
     {
-        TICK(capture)
         cv::Mat frame;
         cap >> frame;
-        TOCK(capture)
         if (frame.empty())
             break;
-        TOCK(capture)
 
-        TICK(preprocess)
         cv::Mat img640;
         letterBoxInfo lb = letterbox(frame, img640, 640, 640);
 
         fill_nchw_rgb(img640, input_buffer.data(), 640, 640);
-        TOCK(preprocess)
 
         Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
             memory_info,
@@ -469,7 +500,6 @@ int main()
         );
 
         try {
-            TICK(infer)
             auto outputs = session.Run(
                 Ort::RunOptions{ nullptr },
                 input_names.data(),
@@ -478,9 +508,7 @@ int main()
                 output_names.data(),
                 output_names.size()
             );
-            TOCK(infer)
 
-            TICK(post)
             auto faces640 = solver.parse_scrfd_ort(outputs, 640, 640);
             auto faces = unletterbox_faces(faces640, lb, frame.cols, frame.rows);
             static int frame_id = 0;
@@ -490,17 +518,13 @@ int main()
             if (!faces.empty()) {
                 solver.solveAndDraw(frame, faces[0]);
             }
-            TOCK(post)
         }
         catch (const Ort::Exception& e) {
             std::cerr << "ORT ERROR: " << e.what() << std::endl;
             return -1;
         }
 
-        TICK(render)
         cv::imshow("Camera", frame);
-        TOCK(render)
-
         if (cv::waitKey(1) == 27)
             break;
     }
