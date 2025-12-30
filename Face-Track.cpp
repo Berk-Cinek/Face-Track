@@ -24,6 +24,7 @@ struct FaceData {
     cv::Rect2d bounding_box;
     std::vector<cv::Point2d> landmarks;
     float confidence = 0.0f;
+
 };
 
 struct letterBoxInfo {
@@ -32,6 +33,25 @@ struct letterBoxInfo {
     int pad_y;
     int dst_w;
     int dst_h;
+};
+
+struct FacePoseController {
+    bool has_face = false;
+    FaceData last_face;
+    int lost_frames = 0;
+
+    void update(const std::vector<FaceData>& faces) {
+        if (!faces.empty()) {
+            last_face = faces[0];
+            has_face = true;
+            lost_frames = 0;
+        }
+        else {
+            lost_frames++;
+            if (lost_frames > 10)
+                has_face = false;
+        }
+    }
 };
 
 static inline float clampf(float v, float lo, float hi) {
@@ -428,6 +448,9 @@ void opencvConverstion(cv::Mat& frame, int64_t height, int64_t width, float* inp
 
 int main()
 {
+    static FacePoseController controller;
+    static int frame_id = 0;
+
     // Ort model config
     std::int64_t batch = 1;
     std::int64_t numchannels = 3;
@@ -508,16 +531,22 @@ int main()
                 output_names.data(),
                 output_names.size()
             );
-
+            
             auto faces640 = solver.parse_scrfd_ort(outputs, 640, 640);
             auto faces = unletterbox_faces(faces640, lb, frame.cols, frame.rows);
             static int frame_id = 0;
+            controller.update(faces);
+
+            if (controller.has_face && (++frame_id % 3 == 0)) {
+                solver.solveAndDraw(frame, controller.last_face);
+            }
             if (++frame_id % 3 == 0) {
-                solver.solveAndDraw(frame, faces[0]);
+                solver.solveAndDraw(frame, controller.last_face);
             }
             if (!faces.empty()) {
-                solver.solveAndDraw(frame, faces[0]);
+                solver.solveAndDraw(frame, controller.last_face);
             }
+
         }
         catch (const Ort::Exception& e) {
             std::cerr << "ORT ERROR: " << e.what() << std::endl;
