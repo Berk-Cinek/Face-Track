@@ -53,7 +53,6 @@ struct FacePoseController {
         }
     }
 };
-
 static inline float clampf(float v, float lo, float hi) {
     return std::max(lo, std::min(v, hi));
 }
@@ -70,7 +69,6 @@ static inline cv::Rect2d unletter_rect(const cv::Rect2d& r, const letterBoxInfo&
     cv::Point2d p2 = unletter_point({ r.x + r.width, r.y + r.height }, letterbox);
     return cv::Rect2d(p1, p2);
 }
-
 
 letterBoxInfo letterbox(const cv::Mat& src, cv::Mat& dst, int net_w, int net_h)
 {
@@ -176,6 +174,7 @@ public:
 
     //solvePNP function
     void solveAndDraw(cv::Mat& frame, const FaceData& face) {
+
         if (face.landmarks.size() != model_points.size())
             return;
 
@@ -192,10 +191,48 @@ public:
             cv::SOLVEPNP_EPNP
         );
 
+        char buf[64];
+        char text[128];
+        double distance_mm = tvec.at<double>(2);
+        double distance_cm = distance_mm / 10.0;
+
+        spdlog::info("Distance to camera: {:.1f} cm", distance_cm);
+
         cv::rectangle(frame, face.bounding_box, cv::Scalar(0, 255, 0), 2);
         draw_pose_axis(frame, rvec, tvec);
 
         auto angles = rvecToEulerDegrees(rvec);
+        
+        double pitch = angles[0];
+        double yaw = angles[1];
+        double roll = angles[2];
+
+        std::snprintf(
+            text, sizeof(text),
+            "Pitch: %5.1f  Yaw: %5.1f  Roll: %5.1f",
+            pitch, yaw, roll
+        );
+        // yaw pitch Display
+        cv::putText(
+            frame,
+            text,
+            cv::Point(20, 30),
+            cv::FONT_HERSHEY_SIMPLEX,
+            0.7,
+            cv::Scalar(0, 255, 255),
+            2,
+            cv::LINE_AA
+        );
+        //distance display
+        std::snprintf(buf, sizeof(buf), "Dist: %.1f cm", distance_cm);
+
+        cv::putText(frame, buf,
+            { 20, 80 },
+            cv::FONT_HERSHEY_SIMPLEX,
+            0.8,
+            { 0, 255, 255 },
+            2);
+
 
         spdlog::info(
             "Pitch: {:.1f} degrees, Yaw: {:.1f} degrees, Roll: {:.1f} degrees",
