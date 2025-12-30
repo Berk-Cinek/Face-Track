@@ -538,12 +538,15 @@ int main()
             controller.update(faces);
 
             if (controller.has_face && (++frame_id % 3 == 0)) {
+                //input needs to be stopped if face not deteceted
                 solver.solveAndDraw(frame, controller.last_face);
             }
             if (++frame_id % 3 == 0) {
+                //input needs to be stopped if face not deteceted
                 solver.solveAndDraw(frame, controller.last_face);
             }
             if (!faces.empty()) {
+                //input needs to be stopped if face not deteceted
                 solver.solveAndDraw(frame, controller.last_face);
             }
 
