@@ -35,6 +35,12 @@ struct letterBoxInfo {
     int dst_h;
 };
 
+struct GateResult
+{
+    bool accept_angels;
+    bool accept_distance;
+};
+
 struct PoseState {
     double last_yaw = 0.0;
     double last_pitch = 0.0;
@@ -48,11 +54,15 @@ struct FacePoseController {
     PoseState last_accepted_value;
     FaceData last_face;
 
-    void update(const std::vector<FaceData>& faces) {
+    void update(const std::vector<FaceData>& faces, double pitch, double yaw, double roll, double distance) {
         if (!faces.empty()) {
             last_face = faces[0];
             has_face = true;
             lost_frames = 0;
+            last_accepted_value.last_distance = distance;
+            last_accepted_value.last_pitch = pitch;
+            last_accepted_value.last_yaw = yaw;
+            last_accepted_value.last_roll = pitch;
         }
         else {
             //migth need to set the last_accepted_value to 0.0 across all values in the struct depending on value
@@ -63,16 +73,9 @@ struct FacePoseController {
     }
 };
 
-struct GateResult
-{
-    bool accept_angels;
-    bool accept_distance;
+GateResult gate(PoseState accepted_last, ) {
+
 };
-
-
-GateResult gate(cv::Vec3d angels, double distance) {
-
-}
 
 //save this part for smoothing
 cv::Vec3d smooth_and_gate(cv::Vec3d &angles, double &distance) {
@@ -243,30 +246,33 @@ public:
     }
 
     //need to seperate draw this has become a disgusting function
-    void angelAndDistanceFindDraw(cv::Mat& frame, const FaceData& face) {
+    void angelDistanceFind() {
+
+        double distance_mm = tvec.at<double>(2);
+        distance_cm = distance_mm / 10.0;
+
+        auto angles = rvecToEulerDegrees(rvec);
+
+        pitch = angles[0];
+        yaw = angles[1];
+        roll = angles[2];
+    }
+
+    void angelDistanceDraw(cv::Mat& frame, const FaceData& face) {
 
         char buf[64];
         char text[128];
-        double distance_mm = tvec.at<double>(2);
-        double distance_cm = distance_mm / 10.0;
-
         spdlog::info("Distance to camera: {:.1f} cm", distance_cm);
 
         cv::rectangle(frame, face.bounding_box, cv::Scalar(0, 255, 0), 2);
 
         draw_pose_axis(frame, rvec, tvec);
-
-        auto angles = rvecToEulerDegrees(rvec);
-
-        double pitch = angles[0];
-        double yaw = angles[1];
-        double roll = angles[2];
-
         std::snprintf(
             text, sizeof(text),
             "Pitch: %5.1f  Yaw: %5.1f  Roll: %5.1f",
             pitch, yaw, roll
         );
+
         // yaw pitch Display
         cv::putText(
             frame,
@@ -278,10 +284,13 @@ public:
             2,
             cv::LINE_AA
         );
+
         //distance display
         std::snprintf(buf, sizeof(buf), "Dist: %.1f cm", distance_cm);
 
-        cv::putText(frame, buf,
+        cv::putText(
+            frame,
+            buf,
             { 20, 80 },
             cv::FONT_HERSHEY_SIMPLEX,
             0.8,
@@ -291,7 +300,7 @@ public:
 
         spdlog::info(
             "Pitch: {:.1f} degrees, Yaw: {:.1f} degrees, Roll: {:.1f} degrees",
-            angles[0], angles[1], angles[2]
+            pitch, yaw, roll
         );
     }
 
@@ -445,11 +454,24 @@ public:
         return best;
     }
 
+    double get_yaw() {
+        return yaw;
+    };
+    double get_pitch() {
+        return pitch;
+    };
+    double get_roll() {
+        return roll;
+    };
+    double get_distance() {
+        return distance_cm;
+    };
+
 private:
     cv::dnn::Net face_detector;
     int frame_width, frame_height;
-    cv::Mat camera_matrix, dist_coeffs;
-    cv::Mat rvec, tvec;
+    cv::Mat camera_matrix, dist_coeffs, rvec, tvec;
+    double pitch, yaw, roll, distance_cm;
 
     std::vector<cv::Point3d> model_points{
         {0,0,0},
@@ -488,7 +510,6 @@ private:
         }
         catch (...) {}
     }
-
 
     //purely to visualize x,y,z axis on the nose might need some more work later to make it more "usefull" or just more accurate in general it feels like it barely moves
     void draw_pose_axis(cv::Mat& frame, const cv::Mat& rvec, const cv::Mat& tvec)
@@ -603,17 +624,20 @@ int main()
             
             auto faces640 = solver.parse_scrfd_ort(outputs, 640, 640);
             auto faces = unletterbox_faces(faces640, lb, frame.cols, frame.rows);
-            controller.update(faces);
 
             if (controller.has_face && (++frame_id % 3 == 0)) {
                 //input needs to be stopped if face not deteceted
                 solver.solve(frame, controller.last_face);
-                solver.angelAndDistanceFindDraw(frame, controller.last_face);
+                solver.angelDistanceFind();
+                solver.angelDistanceDraw(frame, controller.last_face);
+                controller.update(faces, solver.get_pitch(), solver.get_yaw(), solver.get_roll(), solver.get_distance());
             }
             if (!faces.empty()) {
                 //input needs to be stopped if face not deteceted
                 solver.solve(frame, controller.last_face);
-                solver.angelAndDistanceFindDraw(frame, controller.last_face);
+                solver.angelDistanceFind();
+                solver.angelDistanceDraw(frame, controller.last_face);
+                controller.update(faces, solver.get_pitch(), solver.get_yaw(), solver.get_roll(), solver.get_distance());
             }
 
         }
