@@ -35,10 +35,18 @@ struct letterBoxInfo {
     int dst_h;
 };
 
+struct PoseState {
+    double last_yaw = 0.0;
+    double last_pitch = 0.0;
+    double last_roll = 0.0;
+    double last_distance = 0.0;
+};
+
 struct FacePoseController {
     bool has_face = false;
-    FaceData last_face;
     int lost_frames = 0;
+    PoseState last_accepted_value;
+    FaceData last_face;
 
     void update(const std::vector<FaceData>& faces) {
         if (!faces.empty()) {
@@ -47,12 +55,33 @@ struct FacePoseController {
             lost_frames = 0;
         }
         else {
+            //migth need to set the last_accepted_value to 0.0 across all values in the struct depending on value
             lost_frames++;
             if (lost_frames > 10)
                 has_face = false;
         }
     }
 };
+
+struct GateResult
+{
+    bool accept_angels;
+    bool accept_distance;
+};
+
+
+GateResult gate(cv::Vec3d angels, double distance) {
+
+}
+
+//save this part for smoothing
+cv::Vec3d smooth_and_gate(cv::Vec3d &angles, double &distance) {
+
+
+}
+
+
+
 static inline float clampf(float v, float lo, float hi) {
     return std::max(lo, std::min(v, hi));
 }
@@ -109,6 +138,28 @@ void fill_nchw_rgb(const cv::Mat& img, float* input, int H, int W)
     }
 }
 
+void opencvConverstion(cv::Mat& frame, int64_t height, int64_t width, float* input_buffer) {
+
+    cv::Mat resized;
+    cv::resize(frame, resized, cv::Size(640, 640));
+    int64_t heightWidth = height * width;
+
+    for (int64_t y = 0; y < height; ++y) {
+        for (int64_t x = 0; x < width; ++x) {
+
+            cv::Vec3b pix = resized.at<cv::Vec3b>(y, x);
+
+            float blue = pix[0] / 255.0f;
+            float green = pix[1] / 255.0f;
+            float red = pix[2] / 255.0f;
+
+            input_buffer[0 * heightWidth + y * width + x] = red;
+            input_buffer[1 * heightWidth + y * width + x] = green;
+            input_buffer[2 * heightWidth + y * width + x] = blue;
+        };
+    };
+};
+
 static cv::Vec3d rvecToEulerDegrees(const cv::Mat& rvec)
 {
     cv::Mat R;
@@ -137,6 +188,7 @@ static cv::Vec3d rvecToEulerDegrees(const cv::Mat& rvec)
         z * 180.0 / CV_PI
     };
 }
+
 
 std::vector<FaceData> unletterbox_faces(const std::vector<FaceData>& faces640, const letterBoxInfo& lb, int orig_w, int orig_h) {
     std::vector<FaceData> out;
@@ -173,12 +225,10 @@ public:
     }
 
     //solvePNP function
-    void solveAndDraw(cv::Mat& frame, const FaceData& face) {
+    void solve(cv::Mat& frame, const FaceData& face) {
 
         if (face.landmarks.size() != model_points.size())
             return;
-
-        cv::Mat rvec, tvec;
 
         cv::solvePnP(
             model_points,
@@ -190,6 +240,10 @@ public:
             false,
             cv::SOLVEPNP_EPNP
         );
+    }
+
+    //need to seperate draw this has become a disgusting function
+    void angelAndDistanceFindDraw(cv::Mat& frame, const FaceData& face) {
 
         char buf[64];
         char text[128];
@@ -199,10 +253,11 @@ public:
         spdlog::info("Distance to camera: {:.1f} cm", distance_cm);
 
         cv::rectangle(frame, face.bounding_box, cv::Scalar(0, 255, 0), 2);
+
         draw_pose_axis(frame, rvec, tvec);
 
         auto angles = rvecToEulerDegrees(rvec);
-        
+
         double pitch = angles[0];
         double yaw = angles[1];
         double roll = angles[2];
@@ -240,13 +295,7 @@ public:
         );
     }
 
-
-    std::vector<FaceData> parse_scrfd_ort(
-        const std::vector<Ort::Value>& outputs,
-        int img_w, int img_h,
-        float conf_thresh = 0.5f,
-        float nms_thresh = 0.45f
-    ) {
+    std::vector<FaceData> parse_scrfd_ort(const std::vector<Ort::Value>& outputs, int img_w, int img_h, float conf_thresh = 0.5f, float nms_thresh = 0.45f) {
         std::vector<FaceData> faces;
 
         if (outputs.size() != 9) {
@@ -400,6 +449,7 @@ private:
     cv::dnn::Net face_detector;
     int frame_width, frame_height;
     cv::Mat camera_matrix, dist_coeffs;
+    cv::Mat rvec, tvec;
 
     std::vector<cv::Point3d> model_points{
         {0,0,0},
@@ -439,6 +489,8 @@ private:
         catch (...) {}
     }
 
+
+    //purely to visualize x,y,z axis on the nose might need some more work later to make it more "usefull" or just more accurate in general it feels like it barely moves
     void draw_pose_axis(cv::Mat& frame, const cv::Mat& rvec, const cv::Mat& tvec)
     {
         std::vector<cv::Point3d> axis = {
@@ -461,27 +513,7 @@ private:
     }
 };
 
-void opencvConverstion(cv::Mat& frame, int64_t height, int64_t width, float* input_buffer) {
 
-    cv::Mat resized;
-    cv::resize(frame, resized, cv::Size(640, 640));
-    int64_t heightWidth = height * width;
-
-    for (int64_t y = 0; y < height; ++y) {
-        for (int64_t x = 0; x < width; ++x) {
-
-            cv::Vec3b pix = resized.at<cv::Vec3b>(y, x);
-
-            float blue = pix[0] / 255.0f;
-            float green = pix[1] / 255.0f;
-            float red = pix[2] / 255.0f;
-
-            input_buffer[0 * heightWidth + y * width + x] = red;
-            input_buffer[1 * heightWidth + y * width + x] = green;
-            input_buffer[2 * heightWidth + y * width + x] = blue;
-        };
-    };
-};
 
 int main()
 {
@@ -571,20 +603,17 @@ int main()
             
             auto faces640 = solver.parse_scrfd_ort(outputs, 640, 640);
             auto faces = unletterbox_faces(faces640, lb, frame.cols, frame.rows);
-            static int frame_id = 0;
             controller.update(faces);
 
             if (controller.has_face && (++frame_id % 3 == 0)) {
                 //input needs to be stopped if face not deteceted
-                solver.solveAndDraw(frame, controller.last_face);
-            }
-            if (++frame_id % 3 == 0) {
-                //input needs to be stopped if face not deteceted
-                solver.solveAndDraw(frame, controller.last_face);
+                solver.solve(frame, controller.last_face);
+                solver.angelAndDistanceFindDraw(frame, controller.last_face);
             }
             if (!faces.empty()) {
                 //input needs to be stopped if face not deteceted
-                solver.solveAndDraw(frame, controller.last_face);
+                solver.solve(frame, controller.last_face);
+                solver.angelAndDistanceFindDraw(frame, controller.last_face);
             }
 
         }

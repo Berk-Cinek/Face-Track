@@ -1,19 +1,19 @@
 ﻿  Face-Track.cpp
-C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(152,87): warning C4244: 'argument': conversion from '_Tp' to 'float', possible loss of data
-C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(152,87): warning C4244:         with
-C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(152,87): warning C4244:         [
-C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(152,87): warning C4244:             _Tp=double
-C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(152,87): warning C4244:         ]
-C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(153,89): warning C4244: 'argument': conversion from '_Tp' to 'float', possible loss of data
-C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(153,89): warning C4244:         with
-C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(153,89): warning C4244:         [
-C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(153,89): warning C4244:             _Tp=double
-C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(153,89): warning C4244:         ]
-C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(473,54): warning C4244: 'argument': conversion from 'int64_t' to 'int', possible loss of data
-C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(473,51): warning C4244: 'argument': conversion from 'int64_t' to 'int', possible loss of data
+C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(150,54): warning C4244: 'argument': conversion from 'int64_t' to 'int', possible loss of data
+C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(150,51): warning C4244: 'argument': conversion from 'int64_t' to 'int', possible loss of data
+C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(204,87): warning C4244: 'argument': conversion from '_Tp' to 'float', possible loss of data
+C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(204,87): warning C4244:         with
+C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(204,87): warning C4244:         [
+C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(204,87): warning C4244:             _Tp=double
+C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(204,87): warning C4244:         ]
+C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(205,89): warning C4244: 'argument': conversion from '_Tp' to 'float', possible loss of data
+C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(205,89): warning C4244:         with
+C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(205,89): warning C4244:         [
+C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(205,89): warning C4244:             _Tp=double
+C:\Users\bcine\source\repos\Face-Track\Face-Track\Face-Track.cpp(205,89): warning C4244:         ]
   Generating code
-  4 of 13705 functions (<0.1%) were compiled, the rest were copied from previous compilation.
-    0 functions were new in current compilation
-    22 functions had inline decision re-evaluated but remain unchanged
+  70 of 13707 functions ( 0.5%) were compiled, the rest were copied from previous compilation.
+    2 functions were new in current compilation
+    21 functions had inline decision re-evaluated but remain unchanged
   Finished generating code
   Face-Track.vcxproj -> C:\Users\bcine\source\repos\Face-Track\x64\Release\Face-Track.exe
