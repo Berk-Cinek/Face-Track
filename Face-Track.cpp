@@ -35,34 +35,31 @@ struct letterBoxInfo {
     int dst_h;
 };
 
-struct GateResult
-{
-    bool accept_angels;
-    bool accept_distance;
-};
 
-struct PoseState {
-    double last_yaw = 0.0;
-    double last_pitch = 0.0;
-    double last_roll = 0.0;
-    double last_distance = 0.0;
-};
+namespace tracking {
+    struct PoseState {
+        double last_yaw = 0.0;
+        double last_pitch = 0.0;
+        double last_roll = 0.0;
+        double last_distance = 0.0;
+    };
+}
 
 struct FacePoseController {
     bool has_face = false;
     int lost_frames = 0;
-    PoseState last_accepted_value;
+    tracking::PoseState last_accepted_value;
     FaceData last_face;
 
-    void update(const std::vector<FaceData>& faces, double pitch, double yaw, double roll, double distance) {
-        if (!faces.empty()) {
+void update(const std::vector<FaceData>& faces, double pitch, double yaw, double roll, double distance) {
+        if (!faces.empty() && gate(last_accepted_value, pitch, yaw, roll, distance)) {
             last_face = faces[0];
             has_face = true;
             lost_frames = 0;
             last_accepted_value.last_distance = distance;
             last_accepted_value.last_pitch = pitch;
             last_accepted_value.last_yaw = yaw;
-            last_accepted_value.last_roll = pitch;
+            last_accepted_value.last_roll = pitch;  
         }
         else {
             //migth need to set the last_accepted_value to 0.0 across all values in the struct depending on value
@@ -73,27 +70,29 @@ struct FacePoseController {
     }
 };
 
-void gate(PoseState accepted_last, double pitch, double yaw, double roll, double distance) {
-
-    char* buffer = new char[sizeof(PoseState)];
-    PoseState* pose = reinterpret_cast<PoseState*>(buffer);
-    new (pose) PoseState();
+bool gate(tracking::PoseState &accepted_last, double pitch, double yaw, double roll, double distance) {
+    //need to implement mallock safety here to make sure these have enough room to be allocated
+    char* buffer = new char[sizeof(tracking::PoseState)];
+    tracking::PoseState* pose = reinterpret_cast<tracking::PoseState*>(buffer);
+    auto* pose = new tracking::PoseState(accepted_last);
 
     bool stable = true;
-    double current[4] = { pitch, yaw, roll, distance };
+    double current[4] = { yaw, pitch, roll, distance };
     double threshold[4] = { 3.0, 3.0, 3.0, 700.0 };
     double* stored = reinterpret_cast<double*>(pose);
 
     for (int i = 0; i < 4; ++i) {
-        if (std::abs(stored[i] - current[i]) > threshold[i])
+        if (std::abs(stored[i] - current[i]) > threshold[i]) {
             stable = false;
             break;
+            }
     }
-
-    pose -> ~PoseState();
     delete[] buffer;
+    pose -> ~PoseState();
 
+    return stable;
 };
+
 
 //save this part for smoothing
 cv::Vec3d smooth(cv::Vec3d &angles, double &distance) {
