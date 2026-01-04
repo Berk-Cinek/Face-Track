@@ -71,26 +71,38 @@ void update(const std::vector<FaceData>& faces, double pitch, double yaw, double
 };
 
 bool gate(tracking::PoseState &accepted_last, double pitch, double yaw, double roll, double distance) {
-    //need to implement mallock safety here to make sure these have enough room to be allocated
-    char* buffer = new char[sizeof(tracking::PoseState)];
-    tracking::PoseState* pose = reinterpret_cast<tracking::PoseState*>(buffer);
-    auto* pose = new tracking::PoseState(accepted_last);
+    
+    try
+    {
+        void* raw = std::malloc(sizeof(tracking::PoseState));
+        if (!raw) {
+            throw std::bad_alloc();
+        };
+        
+        auto* pose = new tracking::PoseState(accepted_last);
 
-    bool stable = true;
-    double current[4] = { yaw, pitch, roll, distance };
-    double threshold[4] = { 3.0, 3.0, 3.0, 700.0 };
-    double* stored = reinterpret_cast<double*>(pose);
+        bool stable = true;
+        double current[4] = { yaw, pitch, roll, distance };
+        double threshold[4] = { 3.0, 3.0, 3.0, 700.0 };
+        double* stored = reinterpret_cast<double*>(pose);
 
-    for (int i = 0; i < 4; ++i) {
-        if (std::abs(stored[i] - current[i]) > threshold[i]) {
-            stable = false;
-            break;
+        for (int i = 0; i < 4; ++i) {
+            if (std::abs(stored[i] - current[i]) > threshold[i]) {
+                stable = false;
+                break;
             }
-    }
-    delete[] buffer;
-    pose -> ~PoseState();
+        }
+        delete pose;
 
-    return stable;
+        return stable;
+
+    }
+    catch (const std::bad_alloc&)
+    {
+        return false;
+    }
+
+    
 };
 
 
