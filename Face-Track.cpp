@@ -53,13 +53,13 @@ struct FacePoseController {
 
 void update(const std::vector<FaceData>& faces, double pitch, double yaw, double roll, double distance) {
         if (!faces.empty() && gate(last_accepted_value, pitch, yaw, roll, distance)) {
+            smooth(last_accepted_value, pitch, yaw, roll, distance);
             last_face = faces[0];
             has_face = true;
             lost_frames = 0;
-            last_accepted_value.last_distance = distance;
-            last_accepted_value.last_pitch = pitch;
-            last_accepted_value.last_yaw = yaw;
-            last_accepted_value.last_roll = pitch;  
+        }
+        else if (!faces.empty() && !gate(last_accepted_value, pitch, yaw, roll, distance)) {
+            has_face = true;
         }
         else {
             //migth need to set the last_accepted_value to 0.0 across all values in the struct depending on value
@@ -68,17 +68,16 @@ void update(const std::vector<FaceData>& faces, double pitch, double yaw, double
                 has_face = false;
         }
     }
-};
 
-bool gate(tracking::PoseState &accepted_last, double pitch, double yaw, double roll, double distance) {
-    
+bool gate(tracking::PoseState& accepted_last, double pitch, double yaw, double roll, double distance) {
+
     try
     {
         void* raw = std::malloc(sizeof(tracking::PoseState));
         if (!raw) {
             throw std::bad_alloc();
         };
-        
+
         auto* pose = new tracking::PoseState(accepted_last);
 
         bool stable = true;
@@ -102,17 +101,17 @@ bool gate(tracking::PoseState &accepted_last, double pitch, double yaw, double r
         return false;
     }
 
-    
+    }
+
+void smooth(tracking::PoseState& accepted_last, double pitch, double yaw, double roll, double distance) {
+
+    accepted_last.last_pitch = 0.7 * accepted_last.last_pitch + (1 - 0.7) * pitch;
+    accepted_last.last_yaw = 0.7 * accepted_last.last_yaw + (1 - 0.7) * yaw;
+    accepted_last.last_roll = 0.7 * accepted_last.last_roll + (1 - 0.7) * roll;
+    accepted_last.last_distance = 0.85 * accepted_last.last_distance + (1 - 0.85) * distance;
+    }
+
 };
-
-
-//save this part for smoothing
-cv::Vec3d smooth(cv::Vec3d &angles, double &distance) {
-
-
-}
-
-
 
 static inline float clampf(float v, float lo, float hi) {
     return std::max(lo, std::min(v, hi));
