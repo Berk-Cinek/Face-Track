@@ -50,22 +50,34 @@ struct FacePoseController {
     int lost_frames = 0;
     tracking::PoseState last_accepted_value;
     FaceData last_face;
+    bool pose_valid = false;
+
+void initialize(const std::vector<FaceData>& faces, double pitch, double yaw, double roll, double distance) {
+    if (!pose_valid && !faces.empty()) {
+        smooth(last_accepted_value, pitch, yaw, roll, distance);
+        last_face = faces[0];
+        has_face = true;
+        lost_frames = 0;
+        pose_valid = true;
+    }
+}
 
 void update(const std::vector<FaceData>& faces, double pitch, double yaw, double roll, double distance) {
+        
         if (!faces.empty() && gate(last_accepted_value, pitch, yaw, roll, distance)) {
             smooth(last_accepted_value, pitch, yaw, roll, distance);
             last_face = faces[0];
             has_face = true;
             lost_frames = 0;
-        }
-        else if (!faces.empty() && !gate(last_accepted_value, pitch, yaw, roll, distance)) {
-            has_face = true;
+            pose_valid = true;
         }
         else {
             //migth need to set the last_accepted_value to 0.0 across all values in the struct depending on value
             lost_frames++;
-            if (lost_frames > 10)
+            if (lost_frames > 10) {
                 has_face = false;
+                pose_valid = false;
+            }
         }
     }
 
@@ -82,16 +94,20 @@ bool gate(tracking::PoseState& accepted_last, double pitch, double yaw, double r
 
         bool stable = true;
         double current[4] = { yaw, pitch, roll, distance };
-        double threshold[4] = { 3.0, 3.0, 3.0, 700.0 };
+        double threshold[4] = { 40.0, 40.0, 40.0, 2500.0 };
         double* stored = reinterpret_cast<double*>(pose);
+        
 
         for (int i = 0; i < 4; ++i) {
             if (std::abs(stored[i] - current[i]) > threshold[i]) {
+                spdlog::info("stored is {:.1f} current is {:.1f}  threshold is {:.1f}", stored[i], current[i], threshold[i]);
                 stable = false;
                 break;
             }
         }
+
         delete pose;
+        free(raw);
 
         return stable;
 
@@ -105,10 +121,10 @@ bool gate(tracking::PoseState& accepted_last, double pitch, double yaw, double r
 
 void smooth(tracking::PoseState& accepted_last, double pitch, double yaw, double roll, double distance) {
 
-    accepted_last.last_pitch = 0.7 * accepted_last.last_pitch + (1 - 0.7) * pitch;
-    accepted_last.last_yaw = 0.7 * accepted_last.last_yaw + (1 - 0.7) * yaw;
-    accepted_last.last_roll = 0.7 * accepted_last.last_roll + (1 - 0.7) * roll;
-    accepted_last.last_distance = 0.85 * accepted_last.last_distance + (1 - 0.85) * distance;
+    accepted_last.last_pitch = 0.75 * accepted_last.last_pitch + (1 - 0.75) * pitch;
+    accepted_last.last_yaw = 0.75 * accepted_last.last_yaw + (1 - 0.75) * yaw;
+    accepted_last.last_roll = 0.75 * accepted_last.last_roll + (1 - 0.75) * roll;
+    accepted_last.last_distance = 0.9 * accepted_last.last_distance + (1 - 0.9) * distance;
     }
 
 };
@@ -567,7 +583,6 @@ private:
 int main()
 {
     static FacePoseController controller;
-    static int frame_id = 0;
 
     // Ort model config
     std::int64_t batch = 1;
@@ -653,20 +668,24 @@ int main()
             auto faces640 = solver.parse_scrfd_ort(outputs, 640, 640);
             auto faces = unletterbox_faces(faces640, lb, frame.cols, frame.rows);
 
-            if (controller.has_face && (++frame_id % 3 == 0)) {
-                //input needs to be stopped if face not deteceted
-                solver.solve(frame, controller.last_face);
-                solver.angelDistanceFind();
-                solver.angelDistanceDraw(frame, controller.last_face);
-                controller.update(faces, solver.get_pitch(), solver.get_yaw(), solver.get_roll(), solver.get_distance());
-            }
+            
             if (!faces.empty()) {
                 //input needs to be stopped if face not deteceted
-                solver.solve(frame, controller.last_face);
+                solver.solve(frame, faces[0]);
                 solver.angelDistanceFind();
-                solver.angelDistanceDraw(frame, controller.last_face);
-                controller.update(faces, solver.get_pitch(), solver.get_yaw(), solver.get_roll(), solver.get_distance());
+
+                if (controller.pose_valid == false) {
+                    controller.initialize(faces, solver.get_pitch(), solver.get_yaw(), solver.get_roll(), solver.get_distance());
+                }
+                else {
+                    controller.update(faces, solver.get_pitch(), solver.get_yaw(), solver.get_roll(), solver.get_distance());
+                }
             }
+
+            if (controller.pose_valid) {
+                solver.angelDistanceDraw(frame, controller.last_face);
+            }
+            
 
         }
         catch (const Ort::Exception& e) {
