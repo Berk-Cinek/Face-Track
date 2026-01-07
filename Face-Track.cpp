@@ -79,11 +79,21 @@ struct FacePoseController {
     bool gate(PoseState& accepted_last, cv::Mat rvec_raw, cv::Mat tvec_raw) {
 
         bool stable = true;
-        double threshold_rotation = 0.15;//rad
-        double threshold_distance = 30;//mm
+        double threshold_rotation = 0.17;//rad
+        double threshold_distance = 300;//mm
 
-        cv::Mat rvec_differance = accepted_last.rvec - rvec_raw;
-        double rotation_delta = cv::norm(rvec_differance);
+        cv::Mat R_raw;
+        cv::Mat R_last;
+        cv::Rodrigues(rvec_raw, R_raw);
+        cv::Rodrigues(accepted_last.rvec, R_last);
+
+        cv::Mat R_delta = R_raw * R_last.t();
+        double trace = cv::trace(R_delta)[0];
+        double cos_theta = (trace - 1) / 2;
+        //numerical safety
+        cos_theta = std::clamp(cos_theta, -1.0, 1.0);
+
+        double rotation_angle = std::acos(cos_theta);
 
         //3x1 matrix so to reach tvec.z you need to grab row 2 tvec = [tx] <- row 0 , [ty] <- row 1, [tz] <- row 2
         double tz = tvec_raw.at<double>(2, 0);
@@ -91,7 +101,7 @@ struct FacePoseController {
 
         double distance_delta = tz_last - tz;
 
-        if (rotation_delta <= threshold_rotation && distance_delta <= threshold_distance) {
+        if (rotation_angle <= threshold_rotation && distance_delta <= threshold_distance) {
 
             stable = true;
             return stable;
@@ -108,15 +118,30 @@ struct FacePoseController {
         //3x1 matrix so to reach tvec.z you need to grab row 2 tvec = [tx] <- row 0 , [ty] <- row 1, [tz] <- row 2
         double tz = tvec_raw.at<double>(2, 0);
 
+        cv::Mat R_raw;
+        cv::Mat R_last;
+        cv::Mat rvec_delta;
+        cv::Rodrigues(rvec_raw, R_raw);
+        cv::Rodrigues(accepted_last.rvec, R_last);
+
+        cv::Mat R_delta = R_raw * R_last.t();
+
+        cv::Rodrigues(R_delta, rvec_delta);
+
+        rvec_delta* = (1 - alhpa_rot);
+
         //on the first run initilization of mainly rvec with .clone for a owned copy
         if (accepted_last.rvec.empty()) {
             accepted_last.rvec = rvec_raw.clone();
             accepted_last.tvec_z = tz;
         }
 
-        accepted_last.rvec = 0.5 * accepted_last.rvec + (1 - 0.75) * rvec_raw;
 
-        accepted_last.tvec_z = 0.7 * accepted_last.tvec_z + (1 - 0.9) * tz;
+
+
+        accepted_last.rvec = 0.7 * accepted_last.rvec + (1 - 0.7) * rvec_raw;
+
+        accepted_last.tvec_z = 0.85 * accepted_last.tvec_z + (1 - 0.85) * tz;
 
     };
 
