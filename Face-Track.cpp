@@ -118,31 +118,34 @@ struct FacePoseController {
         //3x1 matrix so to reach tvec.z you need to grab row 2 tvec = [tx] <- row 0 , [ty] <- row 1, [tz] <- row 2
         double tz = tvec_raw.at<double>(2, 0);
 
-        cv::Mat R_raw;
-        cv::Mat R_last;
-        cv::Mat rvec_delta;
-        cv::Rodrigues(rvec_raw, R_raw);
-        cv::Rodrigues(accepted_last.rvec, R_last);
-
-        cv::Mat R_delta = R_raw * R_last.t();
-
-        cv::Rodrigues(R_delta, rvec_delta);
-
-        rvec_delta* = (1 - alhpa_rot);
-
         //on the first run initilization of mainly rvec with .clone for a owned copy
         if (accepted_last.rvec.empty()) {
             accepted_last.rvec = rvec_raw.clone();
             accepted_last.tvec_z = tz;
         }
 
+        cv::Mat R_raw;
+        cv::Mat R_last;
+        cv::Mat rvec_delta;
+        cv::Mat R_step;
+        
+        
+        cv::Rodrigues(rvec_raw, R_raw);//converting roations matricies to vectors
+        cv::Rodrigues(accepted_last.rvec, R_last);
 
+        cv::Mat R_delta = R_raw * R_last.t(); //.t() is the transpose --what rotation moves me from last -> now--
+   
+        cv::Rodrigues(R_delta, rvec_delta);
 
+        double alpha_rot = 0.8;
+        rvec_delta = rvec_delta * (1.0 - alpha_rot);//apply smoothing
 
-        accepted_last.rvec = 0.7 * accepted_last.rvec + (1 - 0.7) * rvec_raw;
+        cv::Rodrigues(rvec_delta, R_step);
+        cv::Mat R_new = R_step * R_last;
 
-        accepted_last.tvec_z = 0.85 * accepted_last.tvec_z + (1 - 0.85) * tz;
+        cv::Rodrigues(R_new, accepted_last.rvec);
 
+        accepted_last.tvec_z = 0.85 * accepted_last.tvec_z + (1 - 0.85) * tz;//linear smoothing
     };
 
 };
