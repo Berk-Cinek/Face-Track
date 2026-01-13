@@ -34,3 +34,8 @@
 # Loggers
 *.log
 *.tlog
+
+# vs buidling artifacts
+*.iobj
+*.ipdb
+*.pdb
