@@ -102,7 +102,7 @@ struct FacePoseController {
         double distance_delta = abs(tz - tz_last)/tz_last;
 
         if (rotation_angle <= threshold_rotation && distance_delta <= threshold_distance) {
-
+            //test
             stable = true;
             return stable;
         }
