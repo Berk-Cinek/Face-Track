@@ -76,52 +76,48 @@ struct FacePoseController {
         }
     }
 
-    bool gate(PoseState& accepted_last, cv::Mat rvec_raw, cv::Mat tvec_raw) {
+    bool gate(PoseState& accepted_last, const cv::Mat& rvec_raw, const cv::Mat& tvec_raw) {
+        if (accepted_last.rvec.empty()) {
+            return true; // first valid pose, accept
+        }
 
-        bool stable = true;
-        double threshold_rotation = 0.17;//rad
-        double threshold_distance = 300;//mm
+        const double threshold_rotation = 0.17; // rad
+        const double threshold_distance = 0.30; // %
 
-        cv::Mat R_raw;
-        cv::Mat R_last;
+        cv::Mat R_raw, R_last;
         cv::Rodrigues(rvec_raw, R_raw);
         cv::Rodrigues(accepted_last.rvec, R_last);
 
         cv::Mat R_delta = R_raw * R_last.t();
         double trace = cv::trace(R_delta)[0];
-        double cos_theta = (trace - 1) / 2;
-        //numerical safety
+        double cos_theta = (trace - 1.0) / 2.0;
         cos_theta = std::clamp(cos_theta, -1.0, 1.0);
-
         double rotation_angle = std::acos(cos_theta);
 
-        //3x1 matrix so to reach tvec.z you need to grab row 2 tvec = [tx] <- row 0 , [ty] <- row 1, [tz] <- row 2
         double tz = tvec_raw.at<double>(2, 0);
-        double tz_last = last_accepted.tvec_z;
+        double tz_last = accepted_last.tvec_z;
 
-        double distance_delta = abs(tz - tz_last)/tz_last;
+        double denom = std::max(1e-6, std::max(tz, tz_last));
+        double distance_delta = std::abs(tz - tz_last) / denom;
 
         if (rotation_angle <= threshold_rotation && distance_delta <= threshold_distance) {
-            //test
-            stable = true;
-            return stable;
+            return true;
         }
-        else
-        {
-            stable = false;
-            return stable;
-        }
+
+        spdlog::info("Gating triggered (frame dropped). rot(rad)={:.3f}, dist(%)={:.3f}",
+            rotation_angle, distance_delta);
+        return false;
     }
 
-    void smooth(PoseState& accepted_last, cv::Mat rvec_raw, cv::Mat tvec_raw) {
+    void smooth(PoseState& last_accepted, cv::Mat rvec_raw, cv::Mat tvec_raw) {
 
         //3x1 matrix so to reach tvec.z you need to grab row 2 tvec = [tx] <- row 0 , [ty] <- row 1, [tz] <- row 2
         double tz = tvec_raw.at<double>(2, 0);
 
         //on the first run initilization of mainly rvec with .clone for a owned copy
-        if (accepted_last.rvec.empty()) {
-            accepted_last.rvec = rvec_raw.clone();
-            accepted_last.tvec_z = tz;
+        if (last_accepted.rvec.empty()) {
+            last_accepted.rvec = rvec_raw.clone();
+            last_accepted.tvec_z = tz;
         }
 
         cv::Mat R_raw;
@@ -131,7 +127,7 @@ struct FacePoseController {
         
         
         cv::Rodrigues(rvec_raw, R_raw);//converting roations matricies to vectors
-        cv::Rodrigues(accepted_last.rvec, R_last);
+        cv::Rodrigues(last_accepted.rvec, R_last);
 
         cv::Mat R_delta = R_raw * R_last.t(); //.t() is the transpose --what rotation moves me from last -> now--
    
@@ -142,10 +138,12 @@ struct FacePoseController {
 
         cv::Rodrigues(rvec_delta, R_step);
         cv::Mat R_new = R_step * R_last;
+        cv::Rodrigues(R_new, last_accepted.rvec);
 
-        cv::Rodrigues(R_new, accepted_last.rvec);
+        last_accepted.tvec_z = 0.85 * last_accepted.tvec_z + (1 - 0.85) * tz;//linear smoothing
 
-        accepted_last.tvec_z = 0.85 * accepted_last.tvec_z + (1 - 0.85) * tz;//linear smoothing
+        spdlog::info("Tvec  after smoothing {:.1}", last_accepted.tvec_z);
+        
     };
 
 };
@@ -205,28 +203,6 @@ struct FacePoseController {
             }
         }
     }
-
-    void opencvConverstion(cv::Mat& frame, int64_t height, int64_t width, float* input_buffer) {
-
-        cv::Mat resized;
-        cv::resize(frame, resized, cv::Size(640, 640));
-        int64_t heightWidth = height * width;
-
-        for (int64_t y = 0; y < height; ++y) {
-            for (int64_t x = 0; x < width; ++x) {
-
-                cv::Vec3b pix = resized.at<cv::Vec3b>(y, x);
-
-                float blue = pix[0] / 255.0f;
-                float green = pix[1] / 255.0f;
-                float red = pix[2] / 255.0f;
-
-                input_buffer[0 * heightWidth + y * width + x] = red;
-                input_buffer[1 * heightWidth + y * width + x] = green;
-                input_buffer[2 * heightWidth + y * width + x] = blue;
-            };
-        };
-    };
 
     static cv::Vec3d rvecToEulerDegrees(const cv::Mat& rvec)
     {
@@ -292,21 +268,46 @@ struct FacePoseController {
         }
 
         //solvePNP function
-        void solve(cv::Mat& frame, const FaceData& face) {
-
-            if (face.landmarks.size() != model_points.size())
+        void solve(cv::Mat& /*frame*/, const FaceData& face) {
+            if (face.landmarks.size() != model_points.size()) {
                 return;
+            }
 
-            cv::solvePnP(
+            // Warm start after first solve
+            bool use_guess = pose_initialized;
+
+            std::vector<int> inliers;
+            bool ok = cv::solvePnPRansac(
                 model_points,
                 face.landmarks,
                 camera_matrix,
                 dist_coeffs,
                 rvec,
                 tvec,
-                false,
-                cv::SOLVEPNP_EPNP
+                use_guess,
+                100,         // iterations
+                3.0,         // reprojection error
+                0.99,        // confidence
+                inliers,
+                cv::SOLVEPNP_ITERATIVE
             );
+
+            if (!ok) return;
+
+            try {
+                cv::solvePnPRefineLM(
+                    model_points,
+                    face.landmarks,
+                    camera_matrix,
+                    dist_coeffs,
+                    rvec,
+                    tvec
+                );
+            }
+            catch (...) {
+            }
+
+            pose_initialized = true;
         }
 
         void angelDistanceFind() {
@@ -541,13 +542,14 @@ struct FacePoseController {
         int frame_width, frame_height;
         cv::Mat camera_matrix, dist_coeffs, rvec, tvec;
         double pitch, yaw, roll, distance_cm;
+        bool pose_initialized = false;
 
         std::vector<cv::Point3d> model_points{
-            {0,0,0},
-            {225,170,-135},
-            {-225,170,-135},
-            {150,-150,-125},
-            {-150,-150,-125}
+            {-32.0,  32.0, -30.0},  // left eye center
+            { 32.0,  32.0, -30.0},  // right eye center
+            {  0.0,   0.0,   0.0},  // nose tip
+            {-22.0, -28.0, -20.0},  // left mouth corner
+            { 22.0, -28.0, -20.0}   // right mouth corner
         };
 
         void initCameraMatrix()
@@ -694,21 +696,19 @@ struct FacePoseController {
 
 
                 if (!faces.empty()) {
-                    //input needs to be stopped if face not deteceted
-                    solver.solve(frame, faces[0]);
-                    solver.angelDistanceFind();
+                    //find closest face and ALWAYS use that
+                    FaceData target = solver.find_closest_face(faces);
+
+                    solver.solve(frame, target);
 
                     if (controller.pose_valid == false) {
                         controller.initialize(faces, solver.get_rvec(), solver.get_tvec());
                     }
                     else {
                         controller.update(faces, solver.get_rvec(), solver.get_tvec());
+                        solver.angelDistanceFind();
+                        solver.angelDistanceDraw(frame, controller.last_face);
                     }
-                }
-
-                if (controller.pose_valid) {
-                    solver.angelDistanceFind();
-                    solver.angelDistanceDraw(frame, controller.last_face);
                 }
 
 
