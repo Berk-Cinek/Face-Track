@@ -24,11 +24,31 @@
     <ClCompile Include="Face-Track.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="HeadPoseSolver.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="BackEndServiceHelper.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="BackendHelperModels.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
     <None Include="..\..\..\..\Downloads\scrfd_2.5g_bnkps.onnx">
       <Filter>Models</Filter>
     </None>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="HeadPoseSolver.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="BackendServiceHelper.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="BackendHelperModels.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

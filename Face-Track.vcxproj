@@ -148,14 +148,22 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\..\..\..\dlib-master\dlib\all\source.cpp" />
+    <ClCompile Include="BackendHelperModels.cpp" />
+    <ClCompile Include="BackEndServiceHelper.cpp" />
     <ClCompile Include="Face-Track.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="HeadPoseSolver.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\..\..\Downloads\scrfd_2.5g_bnkps.onnx" />
     <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="BackendHelperModels.h" />
+    <ClInclude Include="BackendServiceHelper.h" />
+    <ClInclude Include="HeadPoseSolver.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
