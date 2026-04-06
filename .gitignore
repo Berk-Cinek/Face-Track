@@ -40,3 +40,5 @@
 *.ipdb
 *.pdb
 *.idb
+*.ilk
+*.obj
