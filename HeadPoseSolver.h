@@ -22,9 +22,24 @@ public:
 
     //solvePNP function
     void solve(cv::Mat& /*frame*/, const FaceData& face) {
-        if (face.landmarks.size() != model_points.size()) {
-            return;
+
+        std::vector<cv::Point2d> image_points;
+        if (face.landmarks.size() == 98) {
+            image_points = {
+                face.landmarks[54], // Nose
+                face.landmarks[16], // Chin
+                face.landmarks[60], // L Eye
+                face.landmarks[72], // R Eye
+                face.landmarks[76], // L Mouth
+                face.landmarks[82]  // R Mouth
+            };
         }
+        else {
+            // Fallback for SCRFD 5-point data if PFLD fails
+            image_points = face.landmarks;
+        }
+
+        if (image_points.size() != model_points.size()) return;
 
         // Warm start after first solve
         bool use_guess = pose_initialized;
@@ -32,7 +47,7 @@ public:
         std::vector<int> inliers;
         bool ok = cv::solvePnPRansac(
             model_points,
-            face.landmarks,
+            image_points,
             camera_matrix,
             dist_coeffs,
             rvec,
@@ -46,6 +61,7 @@ public:
         );
 
         if (!ok) return;
+        
 
         try {
             cv::solvePnPRefineLM(
@@ -56,11 +72,13 @@ public:
                 rvec,
                 tvec
             );
+            
         }
         catch (...) {
         }
-
-        pose_initialized = true;
+        if (ok) {
+            pose_initialized = true;
+        }
     }
 
     void angelDistanceFind() {
@@ -298,11 +316,12 @@ private:
     bool pose_initialized = false;
 
     std::vector<cv::Point3d> model_points{
-        {-32.0,  32.0, -30.0},  // left eye center
-        { 32.0,  32.0, -30.0},  // right eye center
-        {  0.0,   0.0,   0.0},  // nose tip
-        {-22.0, -28.0, -20.0},  // left mouth corner
-        { 22.0, -28.0, -20.0}   // right mouth corner
+        {0.0, 0.0, 0.0},          // 54: Nose Tip
+        {0.0, -330.0, -65.0},     // 16: Chin
+        {-225.0, 170.0, -135.0},  // 60: Left Eye Outer Corner
+        {225.0, 170.0, -135.0},   // 72: Right Eye Outer Corner
+        {-150.0, -150.0, -125.0}, // 76: Left Mouth Corner
+        {150.0, -150.0, -125.0}   // 82: Right Mouth Corner
     };
 
     void initCameraMatrix()
