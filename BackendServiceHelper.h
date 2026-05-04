@@ -69,31 +69,6 @@ public:
         }
     }
 
-    static void fill_nchw_rgb_uint8_t(const cv::Mat& img, uint8_t* input, int Height, int Width)
-    {
-        try {
-            if (img.empty()) {
-                spdlog::error("DEBUG: Input image is EMPTY");
-                return;
-            }
-
-            spdlog::info("DEBUG: fill_nchw - Mat size: {}x{}, Expected: {}x{}", img.cols, img.rows, Width, Height);
-
-            const int HeightWidth = Height * Width;
-            for (int y = 0; y < Height; ++y) {
-                for (int x = 0; x < Width; ++x) {
-                    cv::Vec3b bgr = img.at<cv::Vec3b>(y, x);
-                    input[0 * HeightWidth + y * Width + x] = bgr[2];
-                    input[1 * HeightWidth + y * Width + x] = bgr[1];
-                    input[2 * HeightWidth + y * Width + x] = bgr[0];
-                }
-            }
-        }
-        catch (const cv::Exception& e) {
-            spdlog::error("CRASH IN fill_nchw: {}", e.what());
-            throw;
-        }
-    }
 
     static cv::Vec3d rvecToEulerDegrees(const cv::Mat& rvec)
     {
@@ -124,23 +99,6 @@ public:
         };
     }
 
-    static cv::Rect get_pfld_roi(const cv::Rect2d& face_box, int img_size) {
-        double cx = face_box.x + face_box.width / 2.0;
-        double cy = face_box.y + face_box.height / 2.0;
-
-        double side = std::max(face_box.width, face_box.height) * 1.1;
-
-        int x = std::round(cx - side / 2.0);
-        int y = std::round(cy - side / 2.0);
-
-        int x1 = std::max(0, x);
-        int y1 = std::max(0, y);
-        int x2 = std::min(img_size - 1, (int)std::round(x + side));
-        int y2 = std::min(img_size - 1, (int)std::round(y + side));
-
-        return cv::Rect(x1, y1, x2 - x1, y2 - y1);
-    }
-
     static std::vector<FaceData> unletterbox_faces(const std::vector<FaceData>& faces640, const letterBoxInfo& lb, int orig_w, int orig_h) {
         std::vector<FaceData> out;
         out.reserve(faces640.size());
@@ -163,19 +121,6 @@ public:
             out.push_back(std::move(g));
         }
         return out;
-    }
-
-    static std::vector<cv::Point2d> point2d_converstion(float* raw_inputs) {
-        std::vector <cv::Point2d> converted;
-
-        for (int i = 0; i < 98; ++i) {
-            float x_normalized = raw_inputs[i * 2];
-            float y_normalized = raw_inputs[i * 2 + 1];
-
-            converted.push_back(cv::Point2d(x_normalized * 112, y_normalized * 112));
-        }
-
-        return converted;
     }
 
 };

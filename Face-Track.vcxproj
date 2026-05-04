@@ -42,7 +42,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
@@ -113,14 +113,14 @@
       <PreprocessorDefinitions>
       </PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>C:\opencv\opencv-4.12\build\include;C:\onnx-runtime\onnxruntime-win-x64-gpu-1.23.2\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\opencv\opencv-4.12\build\include;C:\onnx-runtime\onnxruntime-win-x64-gpu-1.23.2\include;C:\Users\bcine\source\repos\Face-Track\vcpkg_installed\x64-windows\x64-windows\include</AdditionalIncludeDirectories>
       <AdditionalOptions>/bigobj  /utf-8 %(AdditionalOptions)</AdditionalOptions>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>C:\opencv\opencv-4.12\build\x64\vc16\lib;C:\onnx-runtime\onnxruntime-win-x64-gpu-1.23.2\lib</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>C:\opencv\opencv-4.12\build\x64\vc16\lib;C:\onnx-runtime\onnxruntime-win-x64-gpu-1.23.2\lib;C:\Users\bcine\source\repos\Face-Track\vcpkg_installed\x64-windows\x64-windows\lib</AdditionalLibraryDirectories>
       <AdditionalDependencies>opencv_world4120d.lib;onnxruntime.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>

@@ -68,8 +68,8 @@ struct FacePoseController {
             return true; // first valid pose, accept
         }
 
-        const double threshold_rotation = 0.17; // rad
-        const double threshold_distance = 0.30; // %
+        const double threshold_rotation = 0.35; // rad
+        const double threshold_distance = 0.40; // %
 
         cv::Mat R_raw, R_last;
         cv::Rodrigues(rvec_raw, R_raw);
