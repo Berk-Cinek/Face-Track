@@ -25,8 +25,7 @@ struct letterBoxInfo {
 
 struct PoseState {
     cv::Mat rvec;
-    //taken only tvec.z for distance controll
-    double tvec_z;
+    cv::Mat tvec;
 };
 
 struct FacePoseController {
@@ -64,6 +63,7 @@ struct FacePoseController {
     }
 
     bool gate(PoseState& accepted_last, const cv::Mat& rvec_raw, const cv::Mat& tvec_raw) {
+
         if (accepted_last.rvec.empty()) {
             return true; // first valid pose, accept
         }
@@ -82,7 +82,7 @@ struct FacePoseController {
         double rotation_angle = std::acos(cos_theta);
 
         double tz = tvec_raw.at<double>(2, 0);
-        double tz_last = accepted_last.tvec_z;
+        double tz_last = accepted_last.tvec.at<double>(2, 0);
 
         double denom = std::max(1e-6, std::max(tz, tz_last));
         double distance_delta = std::abs(tz - tz_last) / denom;
@@ -98,13 +98,9 @@ struct FacePoseController {
 
     void smooth(PoseState& last_accepted, cv::Mat rvec_raw, cv::Mat tvec_raw) {
 
-        //3x1 matrix so to reach tvec.z you need to grab row 2 tvec = [tx] <- row 0 , [ty] <- row 1, [tz] <- row 2
-        double tz = tvec_raw.at<double>(2, 0);
-
-        //on the first run initilization of mainly rvec with .clone for a owned copy
         if (last_accepted.rvec.empty()) {
             last_accepted.rvec = rvec_raw.clone();
-            last_accepted.tvec_z = tz;
+            last_accepted.tvec = tvec_raw.clone();
         }
 
         cv::Mat R_raw;
@@ -112,23 +108,22 @@ struct FacePoseController {
         cv::Mat rvec_delta;
         cv::Mat R_step;
 
-        cv::Rodrigues(rvec_raw, R_raw);//converting roations matricies to vectors
+        cv::Rodrigues(rvec_raw, R_raw);
         cv::Rodrigues(last_accepted.rvec, R_last);
 
-        cv::Mat R_delta = R_raw * R_last.t(); //.t() is the transpose --what rotation moves me from last -> now--
+        cv::Mat R_delta = R_raw * R_last.t();
 
         cv::Rodrigues(R_delta, rvec_delta);
 
         double alpha_rot = 0.8;
-        rvec_delta = rvec_delta * (1.0 - alpha_rot);//apply smoothing
+        rvec_delta = rvec_delta * (1.0 - alpha_rot);
 
         cv::Rodrigues(rvec_delta, R_step);
         cv::Mat R_new = R_step * R_last;
         cv::Rodrigues(R_new, last_accepted.rvec);
 
-        last_accepted.tvec_z = 0.85 * last_accepted.tvec_z + (1 - 0.85) * tz;//linear smoothing
-
-        spdlog::info("Tvec  after smoothing {:.1}", last_accepted.tvec_z);
+        const double alpha_t = 0.85;
+        last_accepted.tvec = alpha_t * last_accepted.tvec + (1.0 - alpha_t) * tvec_raw;
 
     };
 

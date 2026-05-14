@@ -50,19 +50,19 @@ public:
             dist_coeffs,
             rvec,
             tvec,
-            false,       // use existing guess [true-false]
-            100,         // iterations
-            3.0,         // reprojection error
-            0.99,        // confidence
+            pose_initialized, // warm-start from previous pose after first solve
+            100,              // iterations
+            3.0,              // reprojection error
+            0.99,             // confidence
             inliers,
             cv::SOLVEPNP_ITERATIVE
         );
 
-        //debug
         spdlog::info("SolvePnP ok={}, inliers={}", ok, inliers.size());
         spdlog::info("tvec.z = {:.2f}", tvec.at<double>(2));
 
-        if (ok)
+        if (ok) {
+            pose_initialized = true;
             try {
                 cv::solvePnPRefineLM(
                     model_points,
@@ -75,22 +75,23 @@ public:
             }
             catch (...) {
             }
+        }
         
     }
 
-    void angelDistanceFind() {
+    void angelDistanceFind(const cv::Mat& smooth_rvec, const cv::Mat& smooth_tvec) {
 
-        double distance_mm = tvec.at<double>(2);
+        double distance_mm = smooth_tvec.at<double>(2);
         distance_cm = distance_mm / 10.0;
 
-        auto angles = BackEndServiceHelper::rvecToEulerDegrees(rvec);
+        auto angles = BackEndServiceHelper::rvecToEulerDegrees(smooth_rvec);
 
         pitch = angles[0];
         yaw = angles[1];
         roll = angles[2];
     }
 
-    void angelDistanceDraw(cv::Mat& frame, const FaceData& face) {
+    void angelDistanceDraw(cv::Mat& frame, const FaceData& face, const cv::Mat& smooth_rvec, const cv::Mat& smooth_tvec) {
 
         char buf[64];
         char text[128];
@@ -98,7 +99,7 @@ public:
 
         cv::rectangle(frame, face.bounding_box, cv::Scalar(0, 255, 0), 2);
 
-        draw_pose_axis(frame, rvec, tvec);
+        draw_pose_axis(frame, smooth_rvec, smooth_tvec);
         std::snprintf(
             text, sizeof(text),
             "Pitch: %5.1f  Yaw: %5.1f  Roll: %5.1f",

@@ -123,8 +123,8 @@ int main()
                 }
                 else {
                     controller.update(faces, solver.get_rvec(), solver.get_tvec());
-                    solver.angelDistanceFind();
-                    solver.angelDistanceDraw(frame, controller.last_face);
+                    solver.angelDistanceFind(controller.last_accepted.rvec, controller.last_accepted.tvec);
+                    solver.angelDistanceDraw(frame, controller.last_face, controller.last_accepted.rvec, controller.last_accepted.tvec);
                 }
             }
         }
