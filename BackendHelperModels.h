@@ -6,6 +6,7 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
+#include <opencv2/video/tracking.hpp>
 
 struct FaceData {
     cv::Rect2d bounding_box;
@@ -28,6 +29,48 @@ struct PoseState {
     cv::Mat tvec;
 };
 
+class PoseKalamanFilter {
+private:
+    cv::KalmanFilter channels[6]; // rx, ry, rz, tx, ty, tz
+
+    void initChannel(cv::KalmanFilter& kf) {
+        kf.init(2, 1, 0, CV_32F);
+        kf.transitionMatrix = (cv::Mat_<float>(2, 2) << 1, 1, 0, 1);
+        kf.measurementMatrix = (cv::Mat_<float>(1, 2) << 1, 0);
+
+        cv::setIdentity(kf.processNoiseCov, cv::Scalar(1e-4)); //Q tuning
+        cv::setIdentity(kf.measurementNoiseCov, cv::Scalar(1e-2)); //R tuning
+        cv::setIdentity(kf.errorCovPost, cv::Scalar(1.0));
+    }
+
+    float updateChannel(cv::KalmanFilter& kf, float measurement)
+    {
+        kf.predict();
+        cv::Mat measure = (cv::Mat_<float>(1, 1) << measurement);
+        cv::Mat corrected = kf.correct(measure);
+        return corrected.at<float>(0);
+    }
+
+public:
+
+    PoseKalamanFilter() {
+        for (auto& kf : channels)
+            initChannel(kf);
+    }
+
+    void filter(const cv::Mat& rvec_in, const cv::Mat& tvec_in, cv::Mat& rvec_out, cv::Mat& tvec_out) {
+        double rv[3], tv[3];
+        for (int i = 0; i < 3; i++)
+        {
+            rv[i] = updateChannel(channels[i], (float)rvec_in.at<double>(i));
+            tv[i] = updateChannel(channels[i + 3], (float)tvec_in.at<double>(i));
+        }
+        rvec_out = (cv::Mat_<double>(3, 1) << rv[0], rv[1], rv[2]);
+        tvec_out = (cv::Mat_<double>(3, 1) << tv[0], tv[1], tv[2]);
+    }
+
+};
+
 struct FacePoseController {
     bool has_face = false;
     int lost_frames = 0;
@@ -37,17 +80,21 @@ struct FacePoseController {
 
     void initialize(const std::vector<FaceData>& faces, cv::Mat rvec, cv::Mat tvec) {
         if (!pose_valid && !faces.empty()) {
-            smooth(last_accepted, rvec, tvec);
-            last_face = faces[0];
-            has_face = true;
-            lost_frames = 0;
-            pose_valid = true;
+          last_accepted.rvec = rvec.clone();
+          last_accepted.tvec = tvec.clone();
+          last_face = faces[0];
+          has_face = true;
+          lost_frames = 0;
+          pose_valid = true;
         }
     }
+
+
     void update(const std::vector<FaceData>& faces, cv::Mat rvec_raw, cv::Mat tvec_raw) {
 
-        if (!faces.empty() && gate(last_accepted, rvec_raw, tvec_raw)) {
-            smooth(last_accepted, rvec_raw, tvec_raw);
+        if (!faces.empty()) {
+            last_accepted.rvec = rvec_raw.clone();
+            last_accepted.tvec = tvec_raw.clone();
             last_face = faces[0];
             has_face = true;
             lost_frames = 0;
@@ -61,71 +108,5 @@ struct FacePoseController {
             }
         }
     }
-
-    bool gate(PoseState& accepted_last, const cv::Mat& rvec_raw, const cv::Mat& tvec_raw) {
-
-        if (accepted_last.rvec.empty()) {
-            return true; // first valid pose, accept
-        }
-
-        const double threshold_rotation = 0.35; // rad
-        const double threshold_distance = 0.40; // %
-
-        cv::Mat R_raw, R_last;
-        cv::Rodrigues(rvec_raw, R_raw);
-        cv::Rodrigues(accepted_last.rvec, R_last);
-
-        cv::Mat R_delta = R_raw * R_last.t();
-        double trace = cv::trace(R_delta)[0];
-        double cos_theta = (trace - 1.0) / 2.0;
-        cos_theta = std::clamp(cos_theta, -1.0, 1.0);
-        double rotation_angle = std::acos(cos_theta);
-
-        double tz = tvec_raw.at<double>(2, 0);
-        double tz_last = accepted_last.tvec.at<double>(2, 0);
-
-        double denom = std::max(1e-6, std::max(tz, tz_last));
-        double distance_delta = std::abs(tz - tz_last) / denom;
-
-        if (rotation_angle <= threshold_rotation && distance_delta <= threshold_distance) {
-            return true;
-        }
-
-        spdlog::info("Gating triggered (frame dropped). rot(rad)={:.3f}, dist(%)={:.3f}",
-            rotation_angle, distance_delta);
-        return false;
-    }
-
-    void smooth(PoseState& last_accepted, cv::Mat rvec_raw, cv::Mat tvec_raw) {
-
-        if (last_accepted.rvec.empty()) {
-            last_accepted.rvec = rvec_raw.clone();
-            last_accepted.tvec = tvec_raw.clone();
-        }
-
-        cv::Mat R_raw;
-        cv::Mat R_last;
-        cv::Mat rvec_delta;
-        cv::Mat R_step;
-
-        cv::Rodrigues(rvec_raw, R_raw);
-        cv::Rodrigues(last_accepted.rvec, R_last);
-
-        cv::Mat R_delta = R_raw * R_last.t();
-
-        cv::Rodrigues(R_delta, rvec_delta);
-
-        double alpha_rot = 0.8;
-        rvec_delta = rvec_delta * (1.0 - alpha_rot);
-
-        cv::Rodrigues(rvec_delta, R_step);
-        cv::Mat R_new = R_step * R_last;
-        cv::Rodrigues(R_new, last_accepted.rvec);
-
-        const double alpha_t = 0.85;
-        last_accepted.tvec = alpha_t * last_accepted.tvec + (1.0 - alpha_t) * tvec_raw;
-
-    };
-
 };
 

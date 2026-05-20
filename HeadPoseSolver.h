@@ -8,6 +8,7 @@
 #include <spdlog/sinks/basic_file_sink.h>
 #include <onnxruntime_cxx_api.h>
 #include "BackEndServiceHelper.h"
+#include "BackendHelperModels.h"
 
 
 class HeadPoseSolver {
@@ -35,7 +36,6 @@ public:
             };
         }
         else {
-            // Fallback for SCRFD 5-point data if PFLD fails
             image_points = face.landmarks;
         }
 
@@ -70,11 +70,10 @@ public:
                     camera_matrix,
                     dist_coeffs,
                     rvec,
-                    tvec
-                );
+                    tvec);
             }
-            catch (...) {
-            }
+            catch (...) { }
+            kalaman.filter(rvec, tvec, rvec_smooth, tvec_smooth);
         }
         
     }
@@ -300,10 +299,10 @@ public:
         return distance_cm;
     };
     cv::Mat get_rvec() {
-        return rvec;
+        return rvec_smooth;
     }
     cv::Mat get_tvec() {
-        return tvec;
+        return tvec_smooth;
     }
 
 private:
@@ -312,13 +311,15 @@ private:
     cv::Mat camera_matrix, dist_coeffs, rvec, tvec;
     double pitch, yaw, roll, distance_cm;
     bool pose_initialized = false;
+    PoseKalamanFilter kalaman;
+    cv::Mat rvec_smooth, tvec_smooth;
 
     std::vector<cv::Point3d> model_points{
-        {-225.0, 170.0, -135.0},  // left eye
-        {225.0, 170.0, -135.0},   // right eye
-        {0.0, 0.0, 0.0},          // nose tip
-        {-150.0, -150.0, -125.0}, // left mouth
-        {150.0, -150.0, -125.0}   // right mouth
+      { -32.0, -27.0, -20.0 },  // left eye
+      {  32.0, -27.0, -20.0 },  // right eye
+      {   0.0,   0.0,   0.0 },  // nose tip
+      { -27.0,  27.0, -22.0 },  // left mouth
+      {  27.0,  27.0, -22.0 }   // right mouth
     };
 
     void initCameraMatrix()
