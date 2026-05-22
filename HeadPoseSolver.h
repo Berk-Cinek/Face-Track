@@ -7,6 +7,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <onnxruntime_cxx_api.h>
+#include <fstream>
 #include "BackEndServiceHelper.h"
 #include "BackendHelperModels.h"
 
@@ -19,6 +20,7 @@ public:
         initLogger();
         initCameraMatrix();
         dist_coeffs = cv::Mat::zeros(4, 1, CV_64F);
+        cv::Mat mean_shape = loadMeanShape("meanshape_68.csv");
     }
 
     //solvePNP function
@@ -286,6 +288,24 @@ public:
         return best;
     }
 
+    cv::Mat loadMeanShape(const std::string& path) {
+        cv::Mat mean(68, 3, CV_64F);
+        std::ifstream file(path);
+        std::string line;
+        int row = 0;
+        while (std::getline(file, line) && row < 68)
+        {
+            std::stringstream ss(line);
+            std::string val;
+            int col = 0;
+            while (std::getline(ss, val, ',') && col < 3) {
+                mean.at<double>(row, col++) = std::stod(val);
+            }
+            row++;
+        }
+        return mean;
+    }
+
     double get_yaw() {
         return yaw;
     };
@@ -319,7 +339,7 @@ private:
       {  32.0, -27.0, -20.0 },  // right eye
       {   0.0,   0.0,   0.0 },  // nose tip
       { -27.0,  27.0, -22.0 },  // left mouth
-      {  27.0,  27.0, -22.0 }   // right mouth
+      {  27.0,  27.0, -22.0 }   // right mouth2
     };
 
     void initCameraMatrix()

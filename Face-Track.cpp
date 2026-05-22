@@ -43,7 +43,7 @@ int main()
     // By not setting this, ORT automatically manages cores and affinities
     session_options_scrfd.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 
-    Ort::Session session_scrfd(env, L"scrfd_model.onnx", session_options_scrfd);
+    Ort::Session session_scrfd(env, L"det_10g.onnx", session_options_scrfd);
 
     std::vector<float> input_buffer_scfrd(input_tensor_size_scrfd);
 
