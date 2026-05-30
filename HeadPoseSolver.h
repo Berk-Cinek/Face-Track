@@ -20,65 +20,22 @@ public:
         initLogger();
         initCameraMatrix();
         dist_coeffs = cv::Mat::zeros(4, 1, CV_64F);
-        cv::Mat mean_shape = loadMeanShape("meanshape_68.csv");
+        mean_shape = loadMeanShape("meanshape_68.csv");
     }
 
-    //solvePNP function
-    void solve(cv::Mat& /*frame*/, const FaceData& face) {
+    void solveAffine(const std::vector<cv::Point3d>& landmarks)
+    {
+        double s; //scale
+        cv::Mat R, t; // R -> rotation matrix, t -> translation (cv::Mat, 3x1)
 
-        std::vector<cv::Point2d> image_points;
-        if (face.landmarks.size() == 98) {
-            image_points = {
-                face.landmarks[54], // Nose
-                face.landmarks[16], // Chin
-                face.landmarks[60], // L Eye
-                face.landmarks[72], // R Eye
-                face.landmarks[76], // L Mouth
-                face.landmarks[82]  // R Mouth
-            };
-        }
-        else {
-            image_points = face.landmarks;
-        }
-
-        if (image_points.size() != model_points.size()) return;
-
-        std::vector<int> inliers;
-
-        bool ok = cv::solvePnPRansac(
-            model_points,
-            image_points,
-            camera_matrix,
-            dist_coeffs,
-            rvec,
-            tvec,
-            pose_initialized, // warm-start from previous pose after first solve
-            100,              // iterations
-            3.0,              // reprojection error
-            0.99,             // confidence
-            inliers,
-            cv::SOLVEPNP_ITERATIVE
-        );
-
-        spdlog::info("SolvePnP ok={}, inliers={}", ok, inliers.size());
-        spdlog::info("tvec.z = {:.2f}", tvec.at<double>(2));
-
-        if (ok) {
-            pose_initialized = true;
-            try {
-                cv::solvePnPRefineLM(
-                    model_points,
-                    image_points,
-                    camera_matrix,
-                    dist_coeffs,
-                    rvec,
-                    tvec);
-            }
-            catch (...) { }
-            kalaman.filter(rvec, tvec, rvec_smooth, tvec_smooth);
-        }
-        
+        cv::Mat landmarks_mat = cv::Mat(landmarks).reshape(1); //[68, 3]
+        cv::Mat P = estimateAffine3Dto3D(mean_shape, landmarks_mat);
+        P2sRt(P, s, R, t);
+        spdlog::info("R values, (0,0): {:.1f} (0,1): {:.1f} (1,0)", R.at<double>(0, 0), R.at<double>(0, 1), R.at<double>(1, 0));
+        matrix2angle(R, pitch, yaw, roll);
+        spdlog::info("pitch: {:.1f}  yaw: {:.1f}  roll: {:.1f}", pitch, yaw, roll);
     }
+
 
     void angelDistanceFind(const cv::Mat& smooth_rvec, const cv::Mat& smooth_tvec) {
 
@@ -264,6 +221,38 @@ public:
         return faces;
     }
 
+    std::vector<cv::Point3d> parse_1k3d68_ort(const std::vector<Ort::Value>& outputs, const cv::Mat& M) {
+        
+        const float* data = outputs[0].GetTensorData<float>();
+        std::vector<cv::Point3d> landmarks;
+        landmarks.reserve(68);
+        cv::Mat M_inv;
+        cv::invertAffineTransform(M, M_inv);
+        double scale = std::sqrt(M_inv.at<double>(0, 0) * M_inv.at<double>(0, 0) + M_inv.at<double>(1, 0) * M_inv.at<double>(1, 0));
+
+        for (int i = 1035; i < 1103; i++)
+        {
+            float raw_x = data[i * 3 + 0];
+            float raw_y = data[i * 3 + 1];
+            float raw_z = data[i * 3 + 2];
+
+            float x_crop = (raw_x + 1.0f) * 96.0f;
+            float y_crop = (raw_y + 1.0f) * 96.0f;
+            float z_crop = raw_z * 96.0f;
+
+            double fx = M_inv.at<double>(0, 0) * x_crop + M_inv.at<double>(0, 1) * y_crop + M_inv.at<double>(0, 2);
+            double fy = M_inv.at<double>(1, 0) * x_crop + M_inv.at<double>(1, 1) * y_crop + M_inv.at<double>(1, 2);
+
+            //scaling z as M_inv is not a 3D vector
+            double fz = z_crop * scale;
+            spdlog::info("nose raw_z: {:.4f}  fz: {:.2f}  fx: {:.2f}  fy: {:.2f}", raw_z, fz, fx, fy);
+
+            landmarks.emplace_back(fx, fy, fz);
+        }
+        spdlog::info("Nose tip x: {:.1f}, y: {:.1f}", landmarks[30].x, landmarks[30].y);
+        return landmarks;
+    }
+
     FaceData find_closest_face(const std::vector<FaceData>& faces)
     {
         cv::Point2d center(frame_width / 2, frame_height / 2);
@@ -288,23 +277,7 @@ public:
         return best;
     }
 
-    cv::Mat loadMeanShape(const std::string& path) {
-        cv::Mat mean(68, 3, CV_64F);
-        std::ifstream file(path);
-        std::string line;
-        int row = 0;
-        while (std::getline(file, line) && row < 68)
-        {
-            std::stringstream ss(line);
-            std::string val;
-            int col = 0;
-            while (std::getline(ss, val, ',') && col < 3) {
-                mean.at<double>(row, col++) = std::stod(val);
-            }
-            row++;
-        }
-        return mean;
-    }
+    
 
     double get_yaw() {
         return yaw;
@@ -331,8 +304,9 @@ private:
     cv::Mat camera_matrix, dist_coeffs, rvec, tvec;
     double pitch, yaw, roll, distance_cm;
     bool pose_initialized = false;
-    PoseKalamanFilter kalaman;
+    PoseKalmanFilter kalaman;
     cv::Mat rvec_smooth, tvec_smooth;
+    cv::Mat mean_shape;
 
     std::vector<cv::Point3d> model_points{
       { -32.0, -27.0, -20.0 },  // left eye
@@ -392,5 +366,81 @@ private:
         cv::line(frame, p0, image_points[1], cv::Scalar(0, 0, 255), 2);
         cv::line(frame, p0, image_points[2], cv::Scalar(0, 255, 0), 2);
         cv::line(frame, p0, image_points[3], cv::Scalar(255, 0, 0), 2);
+    }
+
+    cv::Mat loadMeanShape(const std::string& path) {
+        cv::Mat mean(68, 3, CV_64F);
+        std::ifstream file(path);
+        std::string line;
+        int row = 0;
+        while (std::getline(file, line) && row < 68)
+        {
+            std::stringstream ss(line);
+            std::string val;
+            int col = 0;
+            while (std::getline(ss, val, ',') && col < 3) {
+                mean.at<double>(row, col++) = std::stod(val);
+            }
+            row++;
+        }
+        return mean;
+    }
+
+    // estimate 3x4 affine matrix mapping mean shape X onto predicted landmarks Y
+    cv::Mat estimateAffine3Dto3D(const cv::Mat& X, const cv::Mat& Y) {
+        int n = X.rows;
+        cv::Mat ones = cv::Mat::ones(n, 1, CV_64F);
+        cv::Mat X_homo;
+        cv::hconcat(X, ones, X_homo);     //[68, 4]
+
+        cv::Mat P_T;
+        cv::solve(X_homo, Y, P_T, cv::DECOMP_SVD); //least squares
+        return P_T.t();        //[3, 4]
+    }
+
+    // decompose affine matrix into scale, rotation, translation
+    void P2sRt(const cv::Mat& P, double& s, cv::Mat& R, cv::Mat& t) {
+        t = P.col(3).clone();              // [3, 1]
+
+        cv::Mat R1 = P.row(0).colRange(0, 3);
+        cv::Mat R2 = P.row(1).colRange(0, 3);
+
+        double n1 = cv::norm(R1);
+        double n2 = cv::norm(R2);
+        s = (n1 + n2) / 2.0;
+
+        cv::Mat r1 = R1 / n1;
+        cv::Mat r2 = R2 / n2;
+        cv::Mat r3 = r1.cross(r2);
+
+        R = cv::Mat(3, 3, CV_64F);
+        r1.copyTo(R.row(0));
+        r2.copyTo(R.row(1));
+        r3.copyTo(R.row(2));
+    }
+
+    // rotation matrix → pitch, yaw, roll in degrees                                         
+    void matrix2angle(const cv::Mat& R, double& pitch_matrix, double& yaw_matrix, double& roll_matrix) {
+        for (int r = 0; r < 3; r++)
+            spdlog::info("input matrix2angle R[{}]: {:.3f} {:.3f} {:.3f}", r, R.at<double>(r, 0), R.at<double>(r, 1), R.at<double>(r, 2));
+        double sy = std::sqrt(R.at<double>(0, 0) * R.at<double>(0, 0) +
+            R.at<double>(1, 0) * R.at<double>(1, 0));
+
+        if (sy > 1e-6) {
+            pitch_matrix = std::atan2(R.at<double>(2, 1), R.at<double>(2, 2));
+            yaw_matrix = std::atan2(-R.at<double>(2, 0), sy);
+            roll_matrix = std::atan2(R.at<double>(1, 0), R.at<double>(0, 0));
+        }
+        else {
+            pitch_matrix = std::atan2(-R.at<double>(1, 2), R.at<double>(1, 1));
+            yaw_matrix = std::atan2(-R.at<double>(2, 0), sy);
+            roll_matrix = 0.0;
+        }
+        for (int r = 0; r < 3; r++)
+            spdlog::info("output matrix2angle R[{}]: {:.3f} {:.3f} {:.3f}", r, R.at<double>(r, 0), R.at<double>(r, 1), R.at<double>(r, 2));
+        const double deg = 180.0 / CV_PI;
+        pitch_matrix *= deg;
+        yaw_matrix *= deg;
+        roll_matrix *= deg;
     }
 };

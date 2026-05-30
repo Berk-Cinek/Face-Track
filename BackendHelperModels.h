@@ -29,7 +29,7 @@ struct PoseState {
     cv::Mat tvec;
 };
 
-class PoseKalamanFilter {
+class PoseKalmanFilter {
 private:
     cv::KalmanFilter channels[6]; // rx, ry, rz, tx, ty, tz
 
@@ -53,7 +53,7 @@ private:
 
 public:
 
-    PoseKalamanFilter() {
+    PoseKalmanFilter() {
         for (auto& kf : channels)
             initChannel(kf);
     }
@@ -109,59 +109,6 @@ struct FacePoseController {
         }
     }
 
-    // estimate 3x4 affine matrix mapping mean shape X onto predicted landmarks Y
-    cv::Mat estimateAffine3Dto3D(const cv::Mat& X, const cv::Mat& Y) {
-        int n = X.rows;
-        cv::Mat ones = cv::Mat::ones(n, 1, CV_64F);
-        cv::Mat X_homo;
-        cv::hconcat(X, ones, X_homo);     //[68, 4]
-
-        cv::Mat P_T;
-        cv::solve(X_homo, Y, P_T, cv::DECOMP_SVD); //least squares
-        return P_T.t();        //[3, 4]
-    }
-
-    // decompose affine matrix into scale, rotation, translation
-    void P2sRt(const cv::Mat& P, double& s, cv::Mat& R, cv::Mat& t) {
-        t = P.col(3).clone();              // [3, 1]
-
-        cv::Mat R1 = P.row(0).colRange(0, 3);
-        cv::Mat R2 = P.row(1).colRange(0, 3);
-
-        double n1 = cv::norm(R1);
-        double n2 = cv::norm(R2);
-        s = (n1 + n2) / 2.0;
-
-        cv::Mat r1 = R1 / n1;
-        cv::Mat r2 = R2 / n2;
-        cv::Mat r3 = r1.cross(r2);
-
-        R = cv::Mat(3, 3, CV_64F);
-        r1.copyTo(R.row(0));
-        r2.copyTo(R.row(1));
-        r3.copyTo(R.row(2));
-    }
-
-    // rotation matrix → pitch, yaw, roll in degrees
-    void matrix2angle(const cv::Mat& R, double& pitch, double& yaw, double& roll) {
-        double sy = std::sqrt(R.at<double>(0, 0) * R.at<double>(0, 0) +
-            R.at<double>(1, 0) * R.at<double>(1, 0));
-
-        if (sy > 1e-6) {
-            pitch = std::atan2(R.at<double>(2, 1), R.at<double>(2, 2));
-            yaw = std::atan2(-R.at<double>(2, 0), sy);
-            roll = std::atan2(R.at<double>(1, 0), R.at<double>(0, 0));
-        }
-        else {
-            pitch = std::atan2(-R.at<double>(1, 2), R.at<double>(1, 1));
-            yaw = std::atan2(-R.at<double>(2, 0), sy);
-            roll = 0.0;
-        }
-
-        const double deg = 180.0 / CV_PI;
-        pitch *= deg;
-        yaw *= deg;
-        roll *= deg;
-    }
+    
 };
 

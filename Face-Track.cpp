@@ -26,6 +26,7 @@
 
 int main()
 {
+    //obsolete need to remove
     static FacePoseController controller;
 
     // SCRFD model config
@@ -36,16 +37,28 @@ int main()
     std::vector<int64_t> input_shape_scfrd = { batch_scfrd, numchannels_scfrd, height_scfrd, width_scfrd };
     size_t input_tensor_size_scrfd = numchannels_scfrd * height_scfrd * width_scfrd;
 
+    // 1k3d68 model config
+    std::int64_t batch_1k3d68 = 1;
+    std::int64_t numchannels_1k3d68 = 3;
+    std::int64_t width_1k3d68 = 192;
+    std::int64_t height_1k3d68 = 192;
+    std::vector<int64_t> input_shape_1k3d68 = { batch_1k3d68, numchannels_1k3d68, height_1k3d68, width_1k3d68 };
+    size_t input_tensor_size_1k3d68 = numchannels_1k3d68 * height_1k3d68 * width_1k3d68;
+
     // ORT setup
-    Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "scrfd");
+    Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "scrfd & 1k3d68");
 
     Ort::SessionOptions session_options_scrfd;
+    Ort::SessionOptions session_options_1k3d68;
     // By not setting this, ORT automatically manages cores and affinities
     session_options_scrfd.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+    session_options_1k3d68.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 
     Ort::Session session_scrfd(env, L"det_10g.onnx", session_options_scrfd);
+    Ort::Session session_1k3d68(env, L"1k3d68.onnx", session_options_1k3d68);
 
     std::vector<float> input_buffer_scfrd(input_tensor_size_scrfd);
+    std::vector<float> input_buffer_1k3d68(input_tensor_size_1k3d68);
 
     Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
 
@@ -55,11 +68,22 @@ int main()
     auto input_name_scfrd = session_scrfd.GetInputNameAllocated(0, allocator);
     std::vector<const char*> input_names_scrfd = { input_name_scfrd.get() };
 
+    auto input_name_1k3d68 = session_1k3d68.GetInputNameAllocated(0, allocator);
+    std::vector<const char*> input_names_1k3d68 = { input_name_1k3d68.get() };
+
     std::vector<const char*> output_names_scfrd;
     std::vector<Ort::AllocatedStringPtr> output_name_allocs_scfrd;
     for (size_t i = 0; i < session_scrfd.GetOutputCount(); ++i) {
         output_name_allocs_scfrd.push_back(session_scrfd.GetOutputNameAllocated(i, allocator));
         output_names_scfrd.push_back(output_name_allocs_scfrd.back().get());
+    }
+
+    std::vector<const char*> output_names_1k3d68;
+    std::vector<Ort::AllocatedStringPtr> output_name_allocs_1k3d68;
+    for (size_t i = 0; i < session_1k3d68.GetOutputCount(); i++)
+    {
+        output_name_allocs_1k3d68.push_back(session_1k3d68.GetOutputNameAllocated(i, allocator));
+        output_names_1k3d68.push_back(output_name_allocs_1k3d68.back().get());
     }
 
     HeadPoseSolver solver(640, 480);
@@ -116,16 +140,34 @@ int main()
                         cv::FONT_HERSHEY_PLAIN, 0.6, cv::Scalar(255, 255, 0), 1);
                 }
 
-                solver.solve(frame, target);
+                cv::Mat crop192;
+                cv::Mat M = BackEndServiceHelper::cropFaceFor1k3d68(frame, target, crop192, input_buffer_1k3d68.data());
 
-                if (controller.pose_valid == false) {
-                    controller.initialize(faces, solver.get_rvec(), solver.get_tvec());
-                }
-                else {
-                    controller.update(faces, solver.get_rvec(), solver.get_tvec());
-                    solver.angelDistanceFind(controller.last_accepted.rvec, controller.last_accepted.tvec);
-                    solver.angelDistanceDraw(frame, controller.last_face, controller.last_accepted.rvec, controller.last_accepted.tvec);
-                }
+                Ort::Value input_tensor_1k3d68 = Ort::Value::CreateTensor<float>(
+                    memory_info,
+                    input_buffer_1k3d68.data(),
+                    input_buffer_1k3d68.size(),
+                    input_shape_1k3d68.data(),
+                    input_shape_1k3d68.size()
+                );
+
+                auto output_1k3d68 = session_1k3d68.Run(
+                    Ort::RunOptions{ nullptr },
+                    input_names_1k3d68.data(),
+                    &input_tensor_1k3d68,
+                    1,
+                    output_names_1k3d68.data(),
+                    output_names_1k3d68.size()
+                );
+
+                auto landmarks68 = solver.parse_1k3d68_ort(output_1k3d68, M);
+                solver.solveAffine(landmarks68);
+
+                cv::rectangle(frame, target.bounding_box, cv::Scalar(0, 255, 0), 2);
+                char text[128];
+                std::snprintf(text, sizeof(text), "Pitch: %5.1f  Yaw: %5.1f  Roll: %5.1f",
+                solver.get_pitch(), solver.get_yaw(), solver.get_roll());
+                cv::putText(frame, text, cv::Point(20, 30), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 255), 2, cv::LINE_AA);
             }
         }
         catch (const Ort::Exception& e) {

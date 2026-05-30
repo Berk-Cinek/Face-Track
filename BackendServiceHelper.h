@@ -123,5 +123,44 @@ public:
         return out;
     }
 
+    static cv::Mat cropFaceFor1k3d68(const cv::Mat& frame, const FaceData& face, cv::Mat& dst, float* input_buffer)
+    {
+        //source points
+        cv::Point2f src[3];
+        src[0] = cv::Point2f(face.bounding_box.x, face.bounding_box.y);
+        src[1] = cv::Point2f(face.bounding_box.x + face.bounding_box.width, face.bounding_box.y);
+        src[2] = cv::Point2f(face.bounding_box.x, face.bounding_box.y + face.bounding_box.height);
+
+        //destination points
+        cv::Point2f dest[3];
+        dest[0] = cv::Point2f(0, 0);
+        dest[1] = cv::Point2f(192, 0);
+        dest[2] = cv::Point2f(0, 192);
+
+
+        //streching is acceptable because The affine transform M records exactly how the image was stretched,
+        //so when you map the landmarks back using the inverse of M, they land in the correct position in the original frame
+        cv::Mat M = cv::getAffineTransform(src, dest);
+        cv::warpAffine(frame, dst, M, cv::Size(192,192));
+
+        //fill nchw_rgb for the newly cropped image
+        const int HeightWidth = 192 * 192;
+        for (int y = 0; y < 192; ++y) {
+            for (int x = 0; x < 192; ++x) {
+                cv::Vec3b bgr = dst.at<cv::Vec3b>(y, x);
+
+                float r = (bgr[2] - 127.5f) / 128.0f;
+                float g = (bgr[1] - 127.5f) / 128.0f;
+                float b = (bgr[0] - 127.5f) / 128.0f;
+
+                input_buffer[0 * HeightWidth + y * 192 + x] = r;
+                input_buffer[1 * HeightWidth + y * 192 + x] = g;
+                input_buffer[2 * HeightWidth + y * 192 + x] = b;
+            }
+        }
+
+        return M;
+    }
+
 };
 
