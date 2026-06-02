@@ -4,7 +4,7 @@
 
 A work-in-progress real-time head pose estimation pipeline using SCRFD face detection and SolvePnP to compute yaw, pitch, roll and camera distance from a webcam feed.
 
-> Not yet configured for external builds — dependencies and model paths are local
+> Build instructions in progress
 
 ## How it works:
 * SCRFD detects face and returns 5 facial landmarks per frame

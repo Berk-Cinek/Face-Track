@@ -383,6 +383,7 @@ private:
             }
             row++;
         }
+        mean.col(0) *= -1.0;
         return mean;
     }
 
