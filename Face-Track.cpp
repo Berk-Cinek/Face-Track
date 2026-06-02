@@ -26,8 +26,6 @@
 
 int main()
 {
-    //obsolete need to remove
-    static FacePoseController controller;
 
     // SCRFD model config
     std::int64_t batch_scfrd = 1;
