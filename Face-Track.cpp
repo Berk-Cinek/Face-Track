@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <numeric>
 #include <chrono>
+#include "Parser.h"
 
 
 #define TICK(name)\
@@ -104,8 +105,8 @@ int main()
             break;
 
         cv::Mat img640;
-        letterBoxInfo lb = BackEndServiceHelper::letterbox(frame, img640, 640, 640);
-        BackEndServiceHelper::fill_nchw_rgb_float(img640, input_buffer_scfrd.data(), 640, 640);
+        letterBoxInfo lb = LetterBoxGeometry::letterbox(frame, img640, 640, 640);
+        ModelInput::pack_nchw_rgb(img640, input_buffer_scfrd.data(), 640, 640);
 
         Ort::Value input_tensor_scfrd = Ort::Value::CreateTensor<float>(
             memory_info,
@@ -125,8 +126,8 @@ int main()
                 output_names_scfrd.size()
             );
 
-            auto faces640 = solver.parse_scrfd_ort(output_scfrd, 640, 640);
-            auto faces = BackEndServiceHelper::unletterbox_faces(faces640, lb, frame.cols, frame.rows);
+            auto faces640 = Parser::parse_scrfd_ort(output_scfrd, 640, 640);
+            auto faces = LetterBoxGeometry::unletterbox_faces(faces640, lb, frame.cols, frame.rows);
 
             if (!faces.empty()) {
                 FaceData target = solver.find_closest_face(faces);
@@ -139,7 +140,7 @@ int main()
                 }
 
                 cv::Mat crop192;
-                cv::Mat M = BackEndServiceHelper::cropFaceFor1k3d68(frame, target, crop192, input_buffer_1k3d68.data());
+                cv::Mat M = ModelInput::cropFaceFor1k3d68(frame, target, crop192, input_buffer_1k3d68.data());
 
                 Ort::Value input_tensor_1k3d68 = Ort::Value::CreateTensor<float>(
                     memory_info,
@@ -158,7 +159,7 @@ int main()
                     output_names_1k3d68.size()
                 );
 
-                auto landmarks68 = solver.parse_1k3d68_ort(output_1k3d68, M);
+                auto landmarks68 = Parser::parse_1k3d68_ort(output_1k3d68, M);
                 solver.solveAffine(landmarks68);
 
                 cv::rectangle(frame, target.bounding_box, cv::Scalar(0, 255, 0), 2);
