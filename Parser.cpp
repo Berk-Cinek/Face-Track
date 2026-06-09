@@ -1,4 +1,5 @@
 #include "Parser.h"
+#include <spdlog/spdlog.h>
 
 std::vector<FaceData> Parser::parse_scrfd_ort(const std::vector<Ort::Value>& outputs, int img_w, int img_h, float conf_thresh, float nms_thresh) {
     std::vector<FaceData> faces;

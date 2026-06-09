@@ -127,7 +127,6 @@
         }
 
         cv::Mat mean(68, 3, CV_64F);
-        std::ifstream file(path);
         std::string line;
         int row = 0;
         while (std::getline(file, line) && row < 68)
