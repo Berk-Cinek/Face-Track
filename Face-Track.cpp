@@ -3,6 +3,8 @@
 #include "BackendHelperModels.h"
 #include "Parser.h"
 #include "ONNXModel.h"
+#include "IFrameSource.h"
+#include "FrameSourceFactory.h"
 
 #include <onnxruntime_cxx_api.h>
 #include <opencv2/core.hpp>
@@ -15,6 +17,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <string>
+
 
 
 #define TICK(name)\
@@ -34,22 +37,11 @@ int main()
 
     HeadPoseSolver solver(640, 480);
 
-    // OpenCV camera
-    cv::VideoCapture cap(0);
-    cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
-    cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
-
-    if (!cap.isOpened()) {
-        spdlog::error("Cannot open camera!");
-        return -1;
-    }
-
-    while (true)
+    std::unique_ptr<IFrameSource> source = makeFrameSource(SourceType::Webcam, "");
+    cv::Mat frame;
+        
+    while (source -> read(frame))
     {
-        cv::Mat frame;
-        cap >> frame;
-        if (frame.empty())
-            break;
 
         try {
             cv::Mat img640;
