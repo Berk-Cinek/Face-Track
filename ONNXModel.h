@@ -14,8 +14,8 @@ private:
 	Ort::SessionOptions options;
 	Ort::Session session{ nullptr };
 	Ort::MemoryInfo mem_info{ nullptr };
-	Ort::AllocatedStringPtr input_name_owner;
-	std::vector<Ort::AllocatedStringPtr> output_name_owners;
+	std::string input_name_str;
+	std::vector<std::string> output_name_str;
 	std::vector<const char*> input_names, output_names;
 	std::vector<float> input_buffer;
 	std::vector<std::int64_t> input_shape_;

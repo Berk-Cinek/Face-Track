@@ -11,13 +11,17 @@ ONNXModel::ONNXModel(Ort::Env& env, const ORTCHAR_T* path, std::vector<std::int6
 
 	Ort::AllocatorWithDefaultOptions allocator;
 	
-	input_name_owner = session.GetInputNameAllocated(0, allocator);
-	input_names = { input_name_owner.get() };
+	input_name_str = session.GetInputNameAllocated(0, allocator).get();
+	
+	size_t n_out = session.GetOutputCount();
+	output_name_str.reserve(n_out);
+	for (size_t i = 0; i < n_out; ++i)
+		output_name_str.emplace_back(session.GetOutputNameAllocated(i, allocator).get());
 
-	for (size_t i = 0; i < session.GetOutputCount(); ++i) {
-		output_name_owners.push_back(session.GetOutputNameAllocated(i, allocator));
-		output_names.push_back(output_name_owners.back().get());
-	}
+	input_names = { input_name_str.c_str() };
+	output_names.reserve(n_out);
+	for (const auto& s : output_name_str)
+		output_names.push_back(s.c_str());
 }
 
 float* ONNXModel::input_data() { return input_buffer.data(); }
